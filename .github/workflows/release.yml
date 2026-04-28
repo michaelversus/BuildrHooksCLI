@@ -58,7 +58,7 @@ jobs:
 
       - name: Update Version.swift
         run: |
-          echo 'let version = "${{ steps.version.outputs.new }}"' > Sources/SwiftFindRefs/Version.swift
+          echo 'let version = "${{ steps.version.outputs.new }}"' > Sources/BuildrHooksCLI/Version.swift
 
       - name: Commit version bump
         run: |
