@@ -22,7 +22,10 @@ let package = Package(
         ),
         .testTarget(
             name: "BuildrHooksCoreTests",
-            dependencies: ["BuildrHooksCore"]
+            dependencies: [
+                "BuildrHooksCore",
+                "BuildrHooksCLI"
+            ]
         )
     ]
 )

@@ -7,6 +7,7 @@ struct BuildrHooksCLICommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "buildrhooks",
         abstract: "Relay hook events into BuildrAI's raw hook queue.",
+        version: version,
         subcommands: [CodexCommand.self]
     )
 }

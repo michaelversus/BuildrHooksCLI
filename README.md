@@ -1,12 +1,12 @@
 # BuildrHooksCLI
 
-`BuildrHooksCLI` is a small command-line tool that relays Codex hook events into BuildrAI's repository-local raw hook queue.
+`BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex hook events into BuildrAI's repository-local raw hook queue.
 
-In practice, it lets a hook producer send JSON to stdin and have that payload turned into a normalized event file under:
+It reads JSON from standard input, normalizes the payload into a queue event, writes that event under:
 
 `<repo>/.buildrai/inbox/raw-hooks`
 
-After writing the file, the CLI also posts a distributed macOS notification so a downstream BuildrAI process can react.
+and then posts a distributed macOS notification so downstream BuildrAI processes can react.
 
 For the under-the-hood design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -14,19 +14,37 @@ For the under-the-hood design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 Use this tool when you want to capture Codex lifecycle hooks from the command line and hand them off to BuildrAI for later processing.
 
-Today it supports one agent namespace:
+Today it supports:
 
-- `codex`
+- agent namespace: `codex`
+- hook events: `session-start`, `prompt-submit`, `stop`
 
-And three hook events:
+## Installation
 
-- `session-start`
-- `prompt-submit`
-- `stop`
+### Homebrew
 
-## Basic Usage
+```bash
+brew tap michaelversus/BuildrHooksCLI https://github.com/michaelversus/BuildrHooksCLI.git
+brew install buildrhookscli
+```
 
-The command shape is:
+This installs the executable as:
+
+```bash
+buildrhooks
+```
+
+## Command Line Usage
+
+### Version and Help
+
+```bash
+buildrhooks --version
+buildrhooks --help
+buildrhooks codex --help
+```
+
+### Basic Command Shape
 
 ```bash
 buildrhooks codex <event>
@@ -34,7 +52,7 @@ buildrhooks codex <event>
 
 The hook payload must be provided on standard input as JSON.
 
-Examples:
+### Examples
 
 ```bash
 echo '{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}' | buildrhooks codex session-start
@@ -47,22 +65,6 @@ echo '{"session_id":"session-42","prompt":"Summarize this repo","transcript_path
 ```bash
 echo '{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}' | buildrhooks codex stop
 ```
-
-## Running From This Package
-
-If you are working from source, build the executable with:
-
-```bash
-swift build
-```
-
-Then run it with:
-
-```bash
-.build/debug/BuildrHooksCLI codex session-start
-```
-
-If you want the installed command name to be `buildrhooks`, expose the built executable under that name in your environment.
 
 ## Supported Payloads
 
@@ -122,7 +124,7 @@ Example:
 }
 ```
 
-## What Happens When You Run It
+## How It Works
 
 For a valid command and valid payload, the CLI will:
 
@@ -168,7 +170,7 @@ The file contains normalized metadata such as:
 
 There are two main categories of failure.
 
-### Usage errors
+### Usage Errors
 
 These happen when the command itself is invalid, for example:
 
@@ -178,7 +180,7 @@ These happen when the command itself is invalid, for example:
 
 These are treated as command errors.
 
-### Payload or queueing errors
+### Payload or Queueing Errors
 
 These happen after the command is recognized, for example:
 
@@ -189,7 +191,7 @@ These happen after the command is recognized, for example:
 
 These are logged as warnings to stderr and do not crash the command flow intentionally.
 
-An example warning looks like:
+Example warning:
 
 ```text
 BuildrHooksCLI warning: Invalid Codex hook payload.
@@ -222,9 +224,23 @@ A hook producer usually does something like this:
 3. Pipe that payload into `buildrhooks codex <event>`.
 4. Let another BuildrAI component watch the raw queue and process the file.
 
+## Testing
+
+Run the test suite with:
+
+```bash
+swift test
+```
+
+The package uses the Swift Testing framework and includes coverage for CLI entrypoint behavior, repository-root discovery, queue writing, payload validation, and version configuration.
+
 ## Current Limitations
 
 - Only the `codex` agent is supported.
 - Only `session-start`, `prompt-submit`, and `stop` are supported.
 - The tool assumes macOS for distributed notifications.
 - Queue persistence is filesystem-based and repository-local.
+
+## Contributions
+
+Issues and pull requests are welcome. Please run `swift test` before submitting and include coverage for new behaviors when possible.
