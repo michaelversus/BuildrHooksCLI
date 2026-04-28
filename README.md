@@ -34,6 +34,49 @@ This installs the executable as:
 buildrhooks
 ```
 
+### Build From Source
+
+```bash
+swift build -c release
+```
+
+Run the built executable directly:
+
+```bash
+.build/release/BuildrHooksCLI --version
+```
+
+Or install it under `buildrhooks` using the provided `Makefile`:
+
+```bash
+make install
+```
+
+## Development
+
+This project uses SwiftFormat and SwiftLint in strict mode. Install both tools
+and enable the tracked git hook before pushing changes:
+
+```sh
+brew install swiftformat swiftlint
+git config core.hooksPath .githooks
+```
+
+The pre-push hook validates formatting and lint rules, attempts auto-fix when
+possible, then stops the push if those fixes changed files so you can review
+and commit them first:
+
+```sh
+swiftformat --lint --config .swiftformat .
+swiftlint lint --strict --config .swiftlint.yml
+```
+
+To apply formatting locally, run:
+
+```sh
+swiftformat --config .swiftformat .
+```
+
 ## Command Line Usage
 
 ### Version and Help

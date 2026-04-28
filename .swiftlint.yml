@@ -1,0 +1,8 @@
+strict: true
+
+excluded:
+  - .git
+  - .build
+  - '**/.build'
+  - .swiftpm
+  - '**/.swiftpm'

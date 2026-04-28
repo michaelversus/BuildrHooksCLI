@@ -1,5 +1,5 @@
-import Testing
 @testable import BuildrHooksCLI
+import Testing
 
 struct BuildrHooksCLICommandTests {
     @Test

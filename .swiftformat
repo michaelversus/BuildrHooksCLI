@@ -1,0 +1,7 @@
+--header strip
+--disable wrapMultilineStatementBraces
+--allman false
+--trailing-commas never
+--exclude .git
+--exclude .build
+--exclude .swiftpm
