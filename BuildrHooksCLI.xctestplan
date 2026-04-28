@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "D476BBE7-093B-4CE7-849B-75F220E317AB",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:",
+      "identifier" : "BuildrHooksCLI",
+      "name" : "BuildrHooksCLI"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "BuildrHooksCoreTests",
+        "name" : "BuildrHooksCoreTests"
+      }
+    }
+  ],
+  "version" : 1
+}
