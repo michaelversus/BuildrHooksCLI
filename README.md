@@ -1,3 +1,8 @@
+<p align="center">
+    <img src="https://img.shields.io/badge/Swift-6.0-red.svg" />
+    <img src="https://codecov.io/gh/michaelversus/BuildrHooksCLI/graph/badge.svg?token=BHX4CK5VOG"/>
+</p>
+
 # BuildrHooksCLI
 
 `BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex hook events into BuildrAI's repository-local raw hook queue.
