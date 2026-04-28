@@ -3,7 +3,7 @@
     <img src="https://codecov.io/gh/michaelversus/BuildrHooksCLI/graph/badge.svg?token=BHX4CK5VOG"/>
 </p>
 
-# BuildrHooksCLI
+# 🪝 BuildrHooksCLI
 
 `BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex hook events into BuildrAI's repository-local raw hook queue.
 
@@ -15,7 +15,7 @@ and then posts a distributed macOS notification so downstream BuildrAI processes
 
 For the under-the-hood design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## What It Is For
+## 🎯 What It Is For
 
 Use this tool when you want to capture Codex lifecycle hooks from the command line and hand them off to BuildrAI for later processing.
 
@@ -24,9 +24,9 @@ Today it supports:
 - agent namespace: `codex`
 - hook events: `session-start`, `prompt-submit`, `stop`
 
-## Installation
+## 🛠️ Installation
 
-### Homebrew
+### 🍺 Homebrew
 
 ```bash
 brew tap michaelversus/BuildrHooksCLI https://github.com/michaelversus/BuildrHooksCLI.git
@@ -39,7 +39,7 @@ This installs the executable as:
 buildrhooks
 ```
 
-### Build From Source
+### 🔨 Build From Source
 
 ```bash
 swift build -c release
@@ -57,7 +57,7 @@ Or install it under `buildrhooks` using the provided `Makefile`:
 make install
 ```
 
-## Development
+## 🧪 Development
 
 This project uses SwiftFormat and SwiftLint in strict mode. Install both tools
 and enable the tracked git hook before pushing changes:
@@ -82,9 +82,9 @@ To apply formatting locally, run:
 swiftformat --config .swiftformat .
 ```
 
-## Command Line Usage
+## 💻 Command Line Usage
 
-### Version and Help
+### ℹ️ Version and Help
 
 ```bash
 buildrhooks --version
@@ -92,7 +92,7 @@ buildrhooks --help
 buildrhooks codex --help
 ```
 
-### Basic Command Shape
+### ⌨️ Basic Command Shape
 
 ```bash
 buildrhooks codex <event>
@@ -100,7 +100,7 @@ buildrhooks codex <event>
 
 The hook payload must be provided on standard input as JSON.
 
-### Examples
+### 🚀 Examples
 
 ```bash
 echo '{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}' | buildrhooks codex session-start
@@ -114,7 +114,7 @@ echo '{"session_id":"session-42","prompt":"Summarize this repo","transcript_path
 echo '{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}' | buildrhooks codex stop
 ```
 
-## Supported Payloads
+## 📦 Supported Payloads
 
 ### `session-start`
 
@@ -172,7 +172,7 @@ Example:
 }
 ```
 
-## How It Works
+## ⚙️ How It Works
 
 For a valid command and valid payload, the CLI will:
 
@@ -194,7 +194,7 @@ The CLI also ensures this archive directory exists:
 <repo>/.buildrai/archive/raw-hooks-processed
 ```
 
-## Output Files
+## 🗂️ Output Files
 
 Each queued event is written as a JSON file with a name like:
 
@@ -214,11 +214,11 @@ The file contains normalized metadata such as:
 - `model`
 - `rawPayload`
 
-## Error Behavior
+## ⚠️ Error Behavior
 
 There are two main categories of failure.
 
-### Usage Errors
+### 🚫 Usage Errors
 
 These happen when the command itself is invalid, for example:
 
@@ -228,7 +228,7 @@ These happen when the command itself is invalid, for example:
 
 These are treated as command errors.
 
-### Payload or Queueing Errors
+### 📭 Payload or Queueing Errors
 
 These happen after the command is recognized, for example:
 
@@ -245,7 +245,7 @@ Example warning:
 BuildrHooksCLI warning: Invalid Codex hook payload.
 ```
 
-## Repository Root Rules
+## 📁 Repository Root Rules
 
 The CLI writes into the nearest ancestor directory containing `.git`.
 
