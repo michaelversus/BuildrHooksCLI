@@ -8,14 +8,28 @@ struct BuildrHooksCLIEntrypointTests {
         let repositoryRoot = try temporaryDirectory(named: "entrypoint")
         defer { try? FileManager.default.removeItem(at: repositoryRoot) }
 
-        FileManager.default.createFile(atPath: repositoryRoot.appending(path: ".git").path, contents: Data())
+        let gitDirectory = repositoryRoot.appending(path: ".git", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: gitDirectory.appending(path: "refs/heads", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try "ref: refs/heads/main\n".write(
+            to: gitDirectory.appending(path: "HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "0123456789abcdef0123456789abcdef01234567\n".write(
+            to: gitDirectory.appending(path: "refs/heads/main"),
+            atomically: true,
+            encoding: .utf8
+        )
         let notifier = HookEventNotifierSpy()
         let stderr = LockedMessages()
         let queue = RawHookEventQueue(
             now: { Date(timeIntervalSince1970: 1_700_000_000) },
             makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! }
         )
-        let payload = #"{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}"#
+        let payload = #"{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5","turn_id":"turn-42"}"#
 
         let entrypoint = BuildrHooksCLIEntrypoint(
             standardInputProvider: { Data(payload.utf8) },
@@ -39,7 +53,12 @@ struct BuildrHooksCLIEntrypointTests {
         #expect(event.eventKind == .sessionStart)
         #expect(event.sessionID == "session-42")
         #expect(event.transcriptPath == "/tmp/session-42.jsonl")
+        #expect(event.payloadVersion == 2)
+        #expect(event.turnID == "turn-42")
         #expect(event.repositoryRootPath == repositoryRoot.path)
+        #expect(event.gitContext?.headSHA == "0123456789abcdef0123456789abcdef01234567")
+        #expect(event.gitContext?.branchName == "main")
+        #expect(event.repositoryFingerprint == event.gitContext?.repositoryFingerprint)
         #expect(notifier.repositoryRootPaths == [repositoryRoot.path])
         #expect(stderr.messages.isEmpty)
     }
