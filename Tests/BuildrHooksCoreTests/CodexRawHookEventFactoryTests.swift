@@ -109,7 +109,10 @@ struct CodexRawHookEventFactoryTests {
         SuccessCase(
             description: "session-start decodes transcript path and model",
             kind: .sessionStart,
-            payload: #"{"session_id":"session-start-42","transcript_path":"/tmp/session-start.jsonl","model":"gpt-5.1","turn_id":"turn-session-start"}"#,
+            payload: """
+            {"session_id":"session-start-42","transcript_path":"/tmp/session-start.jsonl",\
+            "model":"gpt-5.1","turn_id":"turn-session-start"}
+            """,
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             currentWorkingDirectory: "/tmp/session-start",
             repositoryRoot: "/tmp/repo-session-start",
@@ -121,7 +124,10 @@ struct CodexRawHookEventFactoryTests {
         SuccessCase(
             description: "prompt-submit decodes required prompt while preserving nil optionals",
             kind: .promptSubmit,
-            payload: #"{"session_id":"prompt-42","transcript_path":null,"prompt":"ship it","model":null,"turn_id":"turn-prompt"}"#,
+            payload: """
+            {"session_id":"prompt-42","transcript_path":null,"prompt":"ship it",\
+            "model":null,"turn_id":"turn-prompt"}
+            """,
             createdAt: Date(timeIntervalSince1970: 1_700_000_001),
             currentWorkingDirectory: "/tmp/prompt-submit",
             repositoryRoot: "/tmp/repo-prompt-submit",

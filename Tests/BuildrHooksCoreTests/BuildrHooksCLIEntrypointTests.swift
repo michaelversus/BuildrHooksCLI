@@ -8,28 +8,17 @@ struct BuildrHooksCLIEntrypointTests {
         let repositoryRoot = try temporaryDirectory(named: "entrypoint")
         defer { try? FileManager.default.removeItem(at: repositoryRoot) }
 
-        let gitDirectory = repositoryRoot.appending(path: ".git", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(
-            at: gitDirectory.appending(path: "refs/heads", directoryHint: .isDirectory),
-            withIntermediateDirectories: true
-        )
-        try "ref: refs/heads/main\n".write(
-            to: gitDirectory.appending(path: "HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "0123456789abcdef0123456789abcdef01234567\n".write(
-            to: gitDirectory.appending(path: "refs/heads/main"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try createGitFixture(at: repositoryRoot)
         let notifier = HookEventNotifierSpy()
         let stderr = LockedMessages()
         let queue = RawHookEventQueue(
             now: { Date(timeIntervalSince1970: 1_700_000_000) },
             makeID: { UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! }
         )
-        let payload = #"{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5","turn_id":"turn-42"}"#
+        let payload = """
+        {"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl",\
+        "model":"gpt-5","turn_id":"turn-42"}
+        """
 
         let entrypoint = BuildrHooksCLIEntrypoint(
             standardInputProvider: { Data(payload.utf8) },
@@ -95,6 +84,24 @@ struct BuildrHooksCLIEntrypointTests {
             .appending(path: "BuildrHooksCLI-\(name)-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func createGitFixture(at repositoryRoot: URL) throws {
+        let gitDirectory = repositoryRoot.appending(path: ".git", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: gitDirectory.appending(path: "refs/heads", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try "ref: refs/heads/main\n".write(
+            to: gitDirectory.appending(path: "HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "0123456789abcdef0123456789abcdef01234567\n".write(
+            to: gitDirectory.appending(path: "refs/heads/main"),
+            atomically: true,
+            encoding: .utf8
+        )
     }
 }
 
