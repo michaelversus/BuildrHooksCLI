@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-struct BuildrHooksCLIEntrypointTests {
+struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_length
     @Test
     func codexIngestWritesRawEventAndPostsNotification() throws {
         let repositoryRoot = try temporaryDirectory(named: "entrypoint")
@@ -79,6 +79,169 @@ struct BuildrHooksCLIEntrypointTests {
         #expect(notifier.repositoryRootPaths.isEmpty)
     }
 
+    @Test
+    func taggedPromptWithMissingMarkerExitsSetupErrorAndDoesNotEnqueue() throws {
+        let repositoryRoot = try temporaryDirectory(named: "prompt-gate-missing-marker")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+
+        let stderr = LockedMessages()
+        let entrypoint = try makePromptSubmitEntrypoint(
+            repositoryRoot: repositoryRoot,
+            prompt: "#BuildrAI-Eval\nShip it.",
+            stderr: stderr
+        )
+
+        do {
+            try entrypoint.run(arguments: ["buildrhooks", "codex", "prompt-submit"])
+            Issue.record("Expected Prompt Gate exit.")
+        } catch let exit as PromptGateExit {
+            #expect(exit.code == .unavailable)
+        }
+
+        #expect(rawHookFiles(in: repositoryRoot).isEmpty)
+        #expect(stderr.messages.first?.contains("Prompt Gate is not enabled") == true)
+    }
+
+    @Test
+    func taggedPromptWithMalformedMarkerExitsInvalidConfigurationAndDoesNotEnqueue() throws {
+        let repositoryRoot = try temporaryDirectory(named: "prompt-gate-malformed-marker")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+        try createPromptGateMarkerDirectory(at: repositoryRoot)
+        try "not-json".write(
+            to: repositoryRoot.appending(path: ".buildrai/hooks/prompt-gate.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let stderr = LockedMessages()
+        let entrypoint = try makePromptSubmitEntrypoint(
+            repositoryRoot: repositoryRoot,
+            prompt: "#BuildrAI-Eval\nShip it.",
+            stderr: stderr
+        )
+
+        do {
+            try entrypoint.run(arguments: ["buildrhooks", "codex", "prompt-submit"])
+            Issue.record("Expected Prompt Gate exit.")
+        } catch let exit as PromptGateExit {
+            #expect(exit.code == .invalidConfiguration)
+        }
+
+        #expect(rawHookFiles(in: repositoryRoot).isEmpty)
+    }
+
+    @Test
+    func taggedPromptAllowedByResponseEnqueuesRawEventAndCleansHandshake() throws {
+        let repositoryRoot = try temporaryDirectory(named: "prompt-gate-allow")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+        try writeEnabledPromptGateMarker(at: repositoryRoot)
+        let clock = LockedClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let requestID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))
+
+        let stderr = LockedMessages()
+        let promptGate = PromptGate(
+            now: { clock.now },
+            makeRequestID: { requestID },
+            sleep: { _ in
+                try? writePromptGateResponse(
+                    repositoryRoot: repositoryRoot,
+                    requestID: requestID.uuidString.lowercased(),
+                    decision: "allow"
+                )
+                clock.advance(by: 0.1)
+            },
+            timeout: 1,
+            pollingInterval: 0.1
+        )
+        let entrypoint = try makePromptSubmitEntrypoint(
+            repositoryRoot: repositoryRoot,
+            prompt: "#BuildrAI-Eval\nShip it.",
+            stderr: stderr,
+            promptGate: promptGate
+        )
+
+        try entrypoint.run(arguments: ["buildrhooks", "codex", "prompt-submit"])
+
+        #expect(rawHookFiles(in: repositoryRoot).count == 1)
+        #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "inflight.lock").path))
+        #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "request.json").path))
+        #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "response.json").path))
+        #expect(stderr.messages.isEmpty)
+    }
+
+    @Test
+    func taggedPromptDeniedByResponseDoesNotEnqueue() throws {
+        let repositoryRoot = try temporaryDirectory(named: "prompt-gate-deny")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+        try writeEnabledPromptGateMarker(at: repositoryRoot)
+        let clock = LockedClock(Date(timeIntervalSince1970: 1_700_000_000))
+        let requestID = try #require(UUID(uuidString: "BBBBBBBB-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))
+
+        let stderr = LockedMessages()
+        let promptGate = PromptGate(
+            now: { clock.now },
+            makeRequestID: { requestID },
+            sleep: { _ in
+                try? writePromptGateResponse(
+                    repositoryRoot: repositoryRoot,
+                    requestID: requestID.uuidString.lowercased(),
+                    decision: "deny",
+                    reason: "Too risky."
+                )
+                clock.advance(by: 0.1)
+            },
+            timeout: 1,
+            pollingInterval: 0.1
+        )
+        let entrypoint = try makePromptSubmitEntrypoint(
+            repositoryRoot: repositoryRoot,
+            prompt: "#BuildrAI-Eval\nShip it.",
+            stderr: stderr,
+            promptGate: promptGate
+        )
+
+        do {
+            try entrypoint.run(arguments: ["buildrhooks", "codex", "prompt-submit"])
+            Issue.record("Expected Prompt Gate denial.")
+        } catch let exit as PromptGateExit {
+            #expect(exit.code == .denied)
+        }
+
+        #expect(rawHookFiles(in: repositoryRoot).isEmpty)
+        #expect(stderr.messages.first?.contains("Too risky.") == true)
+    }
+
+    @Test
+    func oversizedTaggedPromptCreatesNoHandshakeFiles() throws {
+        let repositoryRoot = try temporaryDirectory(named: "prompt-gate-oversized")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+        try writeEnabledPromptGateMarker(at: repositoryRoot)
+
+        let stderr = LockedMessages()
+        let entrypoint = try makePromptSubmitEntrypoint(
+            repositoryRoot: repositoryRoot,
+            prompt: "#BuildrAI-Eval\n123456",
+            stderr: stderr,
+            promptGate: PromptGate(promptCharacterLimit: 5)
+        )
+
+        do {
+            try entrypoint.run(arguments: ["buildrhooks", "codex", "prompt-submit"])
+            Issue.record("Expected Prompt Gate size failure.")
+        } catch let exit as PromptGateExit {
+            #expect(exit.code == .promptTooLarge)
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "inflight.lock").path))
+        #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "request.json").path))
+        #expect(rawHookFiles(in: repositoryRoot).isEmpty)
+    }
+
     private func temporaryDirectory(named name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "BuildrHooksCLI-\(name)-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -102,6 +265,104 @@ struct BuildrHooksCLIEntrypointTests {
             atomically: true,
             encoding: .utf8
         )
+    }
+
+    private func makePromptSubmitEntrypoint(
+        repositoryRoot: URL,
+        prompt: String,
+        stderr: LockedMessages,
+        promptGate: PromptGate = .init(timeout: 0, pollingInterval: 0)
+    ) throws -> BuildrHooksCLIEntrypoint {
+        let payload = try """
+        {"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl",\
+        "prompt":\(jsonString(prompt)),"model":"gpt-5","turn_id":"turn-42"}
+        """
+        return BuildrHooksCLIEntrypoint(
+            standardInputProvider: { Data(payload.utf8) },
+            standardErrorWriter: { stderr.append($0) },
+            currentWorkingDirectoryProvider: { repositoryRoot.path },
+            now: { Date(timeIntervalSince1970: 1_700_000_000) },
+            repositoryRootLocator: RepositoryRootLocator(),
+            queue: RawHookEventQueue(
+                now: { Date(timeIntervalSince1970: 1_700_000_000) },
+                makeID: { UUID(uuidString: "CCCCCCCC-BBBB-CCCC-DDDD-EEEEEEEEEEEE")! }
+            ),
+            notifier: HookEventNotifierSpy(),
+            promptGate: promptGate
+        )
+    }
+
+    private func rawHookFiles(in repositoryRoot: URL) -> [URL] {
+        let queueDirectory = repositoryRoot.appending(path: ".buildrai/inbox/raw-hooks")
+        return (try? FileManager.default.contentsOfDirectory(
+            at: queueDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+    }
+
+    private func createPromptGateMarkerDirectory(at repositoryRoot: URL) throws {
+        try FileManager.default.createDirectory(
+            at: repositoryRoot.appending(path: ".buildrai/hooks", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+    }
+
+    private func writeEnabledPromptGateMarker(at repositoryRoot: URL) throws {
+        try createPromptGateMarkerDirectory(at: repositoryRoot)
+        try #"{"version":1,"enabled":true,"project_id":"project-42"}"#.write(
+            to: repositoryRoot.appending(path: ".buildrai/hooks/prompt-gate.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+}
+
+private func promptEvalPath(_ repositoryRoot: URL, _ component: String) -> URL {
+    repositoryRoot.appending(path: ".buildrai/hooks/prompt-eval/\(component)")
+}
+
+private func writePromptGateResponse(
+    repositoryRoot: URL,
+    requestID: String,
+    decision: String,
+    reason: String? = nil
+) throws {
+    let responseURL = promptEvalPath(repositoryRoot, "response.json")
+    guard !FileManager.default.fileExists(atPath: responseURL.path) else {
+        return
+    }
+    let reasonField: String = if let reason {
+        try #","reason":\#(jsonString(reason))"#
+    } else {
+        ""
+    }
+    let payload = #"{"version":1,"request_id":"\#(requestID)","decision":"\#(decision)"\#(reasonField)}"#
+    try payload.write(to: responseURL, atomically: true, encoding: .utf8)
+}
+
+private func jsonString(_ string: String) throws -> String {
+    let data = try JSONEncoder().encode(string)
+    return try #require(String(data: data, encoding: .utf8))
+}
+
+private final class LockedClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return date
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        date = date.addingTimeInterval(interval)
+        lock.unlock()
     }
 }
 

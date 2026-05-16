@@ -13,6 +13,8 @@ It reads JSON from standard input, normalizes the payload into a queue event, wr
 
 and then posts a distributed macOS notification so downstream BuildrAI processes can react.
 
+For Codex `prompt-submit` hooks, the CLI also supports a strict Prompt Gate path. Prompts are relayed normally unless the submitted prompt contains a standalone `#BuildrAI-Eval` control line. Tagged prompts pause for a repo-local BuildrAI allow/deny response before Codex continues.
+
 For the under-the-hood design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 🎯 What It Is For
@@ -154,6 +156,33 @@ Example:
 }
 ```
 
+### Prompt Gate Control Tag
+
+For `prompt-submit`, a standalone control line opts into strict Prompt Gate evaluation:
+
+```text
+#BuildrAI-Eval
+Refactor the parser and update its tests.
+```
+
+The tag must be on its own line, with optional surrounding whitespace. Mentions inside prose or fenced code blocks are ignored. When the tag is recognized, the CLI writes both the exact `original_prompt` and an `evaluation_prompt` with control-tag lines removed.
+
+Tagged prompts require this repo-local marker:
+
+```text
+<repo>/.buildrai/hooks/prompt-gate.json
+```
+
+The marker contains local setup state only, such as `version`, `enabled`, and optional project metadata. It must not contain evaluator instructions or policy text.
+
+Transient evaluation files live under:
+
+```text
+<repo>/.buildrai/hooks/prompt-eval/
+```
+
+The CLI writes `inflight.lock` and `request.json`, waits for BuildrAI to write `response.json`, then cleans files owned by the request. Untagged prompts ignore Prompt Gate marker state and keep the normal best-effort relay behavior.
+
 ### `stop`
 
 Expected JSON fields:
@@ -181,6 +210,8 @@ For a valid command and valid payload, the CLI will:
 3. Convert the payload into a normalized `RawHookEvent`.
 4. Write that event as JSON into the repository-local queue.
 5. Post a distributed macOS notification.
+
+For `codex prompt-submit` payloads that contain a recognized `#BuildrAI-Eval` control tag, the CLI first validates Prompt Gate setup, writes a request under `.buildrai/hooks/prompt-eval`, and waits up to 24 seconds for BuildrAI's response. Allowed prompts continue into the raw hook queue. Denied prompts and Prompt Gate errors do not create normal raw hook events.
 
 The queue directory is:
 
@@ -244,6 +275,19 @@ Example warning:
 ```text
 BuildrHooksCLI warning: Invalid Codex hook payload.
 ```
+
+### 🚦 Prompt Gate Exit Codes
+
+Tagged prompts fail closed with stable exit codes:
+
+- `0`: allow or untagged bypass
+- `10`: denied by evaluator
+- `11`: another Prompt Gate request is already in flight
+- `12`: evaluator response timed out
+- `13`: Prompt Gate unavailable or not enabled for the repo
+- `14`: invalid Prompt Gate configuration
+- `15`: evaluation prompt is over 6000 characters
+- `16`: protocol error or malformed response
 
 ## 📁 Repository Root Rules
 

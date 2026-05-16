@@ -30,13 +30,17 @@ private protocol HookEventExecutable: ParsableCommand {
 
 extension HookEventExecutable {
     func run() throws {
-        try BuildrHooksCLIEntrypoint().run(
-            arguments: [
-                CommandLine.arguments.first ?? "buildrhooks",
-                HookAgentKind.codex.rawValue,
-                Self.hookEventKind.rawValue
-            ]
-        )
+        do {
+            try BuildrHooksCLIEntrypoint().run(
+                arguments: [
+                    CommandLine.arguments.first ?? "buildrhooks",
+                    HookAgentKind.codex.rawValue,
+                    Self.hookEventKind.rawValue
+                ]
+            )
+        } catch let exit as PromptGateExit {
+            throw ExitCode(exit.code.rawValue)
+        }
     }
 }
 

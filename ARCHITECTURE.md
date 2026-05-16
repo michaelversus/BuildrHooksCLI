@@ -8,6 +8,8 @@ This package is a small relay that turns hook invocations from Codex into durabl
 4. Write the event into `.buildrai/inbox/raw-hooks` under the current repository.
 5. Broadcast a distributed macOS notification so another process can react.
 
+There is one intentional blocking exception: a Codex `prompt-submit` payload with a standalone `#BuildrAI-Eval` line enters Prompt Gate. Prompt Gate uses repo-local handshake files to ask BuildrAI for an allow/deny response before the prompt continues.
+
 ## Module Layout
 
 - `BuildrHooksCLI`
@@ -19,6 +21,7 @@ This package is a small relay that turns hook invocations from Codex into durabl
 flowchart LR
     User["Hook caller / shell"] --> CLI["BuildrHooksCLI\n(ArgumentParser command tree)"]
     CLI --> Entrypoint["BuildrHooksCLIEntrypoint"]
+    Entrypoint --> Gate["PromptGate\n(tagged prompt-submit only)"]
     Entrypoint --> Factory["CodexRawHookEventFactory"]
     Entrypoint --> Locator["RepositoryRootLocator"]
     Entrypoint --> Queue["RawHookEventQueue"]
@@ -59,6 +62,7 @@ It injects a few environment-dependent behaviors:
 - `repositoryRootLocator`
 - `queue`
 - `notifier`
+- `promptGate`
 
 That design lets tests drive the CLI behavior without shelling out or depending on global process state.
 
@@ -69,13 +73,17 @@ At runtime, `run(arguments:)` does the following:
 3. Validates the event string by converting it into `HookEventKind`.
 4. Reads the raw stdin payload.
 5. Resolves the repository root from the current working directory.
-6. Asks `CodexRawHookEventFactory` to parse and normalize the payload.
-7. Enqueues the resulting `RawHookEvent` as JSON on disk.
-8. Posts a notification containing the repository root path.
+6. For `codex prompt-submit`, parses enough payload metadata to check Prompt Gate.
+7. If a recognized `#BuildrAI-Eval` control line is present, runs the Prompt Gate handshake.
+8. Asks `CodexRawHookEventFactory` to parse and normalize the payload.
+9. Enqueues the resulting `RawHookEvent` as JSON on disk.
+10. Posts a notification containing the repository root path.
 
 Unsupported command shapes, agents, and event names throw `BuildrHooksCLIError` immediately.
 
 Parse and persistence failures are handled differently: they are caught, logged to stderr as warnings, and do not escape the command. This makes hook ingestion best-effort rather than fatal to the caller.
+
+Prompt Gate failures are different by design. Tagged prompts are explicit blocking requests, so unavailable setup, timeout, denial, malformed responses, and protocol problems are reported to stderr and exit non-zero without writing a normal raw hook event.
 
 ```mermaid
 sequenceDiagram
@@ -99,6 +107,53 @@ sequenceDiagram
     Entry->>Notify: postHookEventEnqueued(repositoryRootPath:)
     Notify-->>Caller: command completes
 ```
+
+## Prompt Gate
+
+Prompt Gate is active only for `buildrhooks codex prompt-submit` payloads whose prompt contains `#BuildrAI-Eval` as a standalone control line. Untagged prompts, session starts, and stops keep the existing best-effort relay behavior.
+
+The tag parser is intentionally strict:
+
+- It recognizes `#BuildrAI-Eval` only on its own line, with optional surrounding whitespace.
+- It removes one or more recognized control-tag lines before evaluation.
+- It ignores prose such as `please mention #BuildrAI-Eval`.
+- It ignores examples inside fenced code blocks.
+- It fails if the evaluated prompt is empty after tag removal.
+
+The evaluated prompt hard limit is 6000 characters. Oversized tagged prompts fail before any lock or request file is created.
+
+### Marker
+
+Prompt Gate is enabled per repository by:
+
+```text
+<repo>/.buildrai/hooks/prompt-gate.json
+```
+
+The marker is durable local setup state. It supports `version`, `enabled`, optional `project_id`, optional `repo_path`, and optional `setup_at`. It does not store evaluator instructions, policy text, thresholds, or Apple Intelligence prompts.
+
+For tagged prompts, missing or disabled markers exit `13`. Malformed or unsupported markers exit `14`. Untagged prompts ignore marker state entirely.
+
+### Handshake Files
+
+Transient request/response files live under:
+
+```text
+<repo>/.buildrai/hooks/prompt-eval/
+```
+
+The CLI uses:
+
+- `inflight.lock`
+- `request.json`
+- `response.json`
+- `stale/`
+
+`PromptGateFileBridge` creates `inflight.lock` with atomic create semantics. If the lock already exists, the CLI exits `11`. It writes `request.json` through a temporary file followed by rename, and refuses symlinked lock, request, or response paths.
+
+The request includes protocol version, request id, timestamps, source, repo path, optional project/session/transcript/model metadata, exact `original_prompt`, tag-stripped `evaluation_prompt`, prompt character count, and prompt limit.
+
+The response must use supported version `1`, match the active `request_id`, and make a decision of `allow` or `deny`. Denials must include a non-empty reason. Allow responses clean owned handshake files and continue into the raw hook queue. Denials print the reason, clean owned files, and exit `10`. Timeouts exit `12`; malformed or mismatched responses exit `16`.
 
 ## Payload Normalization
 
