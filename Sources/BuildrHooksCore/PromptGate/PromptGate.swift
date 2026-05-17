@@ -196,7 +196,9 @@ public struct PromptGate {
         if let reason, !reason.isEmpty {
             parts.append(reason)
         } else {
-            parts.append(response.decision == .allow ? "BuildrAI found enough detail to continue." : "No reason provided.")
+            parts.append(
+                response.decision == .allow ? "BuildrAI found enough detail to continue." : "No reason provided."
+            )
         }
         if let score = response.score {
             var scoreDetail = "Score \(score)/100"
