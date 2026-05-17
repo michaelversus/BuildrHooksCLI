@@ -363,22 +363,22 @@ private func writePromptGateResponse(
         #""decision":"\#(decision)""#
     ]
     if let reason {
-        fields.append(try #""reason":\#(jsonString(reason))"#)
+        try fields.append(#""reason":\#(jsonString(reason))"#)
     }
     if let failureCategory {
-        fields.append(try #""failure_category":\#(jsonString(failureCategory))"#)
+        try fields.append(#""failure_category":\#(jsonString(failureCategory))"#)
     }
     if let suggestedPrompt {
-        fields.append(try #""suggested_prompt":\#(jsonString(suggestedPrompt))"#)
+        try fields.append(#""suggested_prompt":\#(jsonString(suggestedPrompt))"#)
     }
     if let score {
         fields.append(#""score":\#(score)"#)
     }
     if let label {
-        fields.append(try #""label":\#(jsonString(label))"#)
+        try fields.append(#""label":\#(jsonString(label))"#)
     }
     if let confidence {
-        fields.append(try #""confidence":\#(jsonString(confidence))"#)
+        try fields.append(#""confidence":\#(jsonString(confidence))"#)
     }
     let payload = "{\(fields.joined(separator: ","))}"
     try payload.write(to: responseURL, atomically: true, encoding: .utf8)
