@@ -2,7 +2,7 @@ import Foundation
 
 public enum PromptGateExitCode: Int32, Equatable, Sendable {
     case allow = 0
-    case denied = 10
+    case denied = 2
     case busy = 11
     case timeout = 12
     case unavailable = 13
@@ -80,7 +80,11 @@ public struct PromptGateResponse: Codable, Equatable, Sendable {
     public let requestID: String
     public let decision: Decision
     public let reason: String?
+    public let failureCategory: String?
     public let suggestedPrompt: String?
+    public let score: Int?
+    public let label: String?
+    public let confidence: String?
 
     public enum Decision: String, Codable, Sendable {
         case allow
@@ -92,6 +96,10 @@ public struct PromptGateResponse: Codable, Equatable, Sendable {
         case requestID = "request_id"
         case decision
         case reason
+        case failureCategory = "failure_category"
         case suggestedPrompt = "suggested_prompt"
+        case score
+        case label
+        case confidence
     }
 }

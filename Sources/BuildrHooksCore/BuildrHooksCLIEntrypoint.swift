@@ -2,6 +2,7 @@ import Foundation
 
 public struct BuildrHooksCLIEntrypoint {
     public var standardInputProvider: @Sendable () -> Data
+    public var standardOutputWriter: @Sendable (String) -> Void
     public var standardErrorWriter: @Sendable (String) -> Void
     public var currentWorkingDirectoryProvider: @Sendable () -> String
     public var now: @Sendable () -> Date
@@ -13,6 +14,9 @@ public struct BuildrHooksCLIEntrypoint {
     public init(
         standardInputProvider: @escaping @Sendable () -> Data = {
             FileHandle.standardInput.readDataToEndOfFile()
+        },
+        standardOutputWriter: @escaping @Sendable (String) -> Void = { message in
+            fputs("\(message)\n", stdout)
         },
         standardErrorWriter: @escaping @Sendable (String) -> Void = { message in
             fputs("\(message)\n", stderr)
@@ -27,6 +31,7 @@ public struct BuildrHooksCLIEntrypoint {
         promptGate: PromptGate = .init()
     ) {
         self.standardInputProvider = standardInputProvider
+        self.standardOutputWriter = standardOutputWriter
         self.standardErrorWriter = standardErrorWriter
         self.currentWorkingDirectoryProvider = currentWorkingDirectoryProvider
         self.now = now
@@ -52,6 +57,8 @@ public struct BuildrHooksCLIEntrypoint {
             do {
                 if kind == .promptSubmit {
                     let parsedPayload = try CodexHookPayloadParser().parse(kind: kind, data: payload)
+                    var promptGate = promptGate
+                    promptGate.hookOutputWriter = standardOutputWriter
                     _ = try promptGate.evaluateIfTagged(
                         payload: parsedPayload,
                         repositoryRoot: repositoryRootURL

@@ -4,6 +4,7 @@ public struct PromptGate {
     public var parser: PromptGateTagParser
     public var markerReader: PromptGateMarkerReader
     public var bridge: PromptGateFileBridge
+    public var hookOutputWriter: @Sendable (String) -> Void
     public var now: @Sendable () -> Date
     public var makeRequestID: @Sendable () -> UUID
     public var sleep: @Sendable (TimeInterval) -> Void
@@ -15,6 +16,7 @@ public struct PromptGate {
         parser: PromptGateTagParser = .init(),
         markerReader: PromptGateMarkerReader = .init(),
         bridge: PromptGateFileBridge = .init(),
+        hookOutputWriter: @escaping @Sendable (String) -> Void = { _ in },
         now: @escaping @Sendable () -> Date = Date.init,
         makeRequestID: @escaping @Sendable () -> UUID = UUID.init,
         sleep: @escaping @Sendable (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
@@ -25,6 +27,7 @@ public struct PromptGate {
         self.parser = parser
         self.markerReader = markerReader
         self.bridge = bridge
+        self.hookOutputWriter = hookOutputWriter
         self.now = now
         self.makeRequestID = makeRequestID
         self.sleep = sleep
@@ -124,14 +127,10 @@ public struct PromptGate {
 
                 switch response.decision {
                 case .allow:
+                    hookOutputWriter(codexSystemMessageOutput(chatMessage(for: response)))
                     return
                 case .deny:
-                    var message = "Prompt Gate denied this prompt: \(response.reason ?? "No reason provided.")"
-                    if let suggestedPrompt = response.suggestedPrompt,
-                       !suggestedPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        message += "\nSuggested prompt: \(suggestedPrompt)"
-                    }
-                    throw PromptGateExit(code: .denied, message: message)
+                    throw PromptGateExit(code: .denied, message: chatMessage(for: response))
                 }
             }
             sleep(min(pollingInterval, max(0, request.deadlineAt.timeIntervalSince(now()))))
@@ -164,4 +163,62 @@ public struct PromptGate {
             )
         }
     }
+
+    private func codexSystemMessageOutput(_ message: String) -> String {
+        let output = CodexHookOutput(systemMessage: message)
+        guard let data = try? JSONEncoder().encode(output),
+              let json = String(data: data, encoding: .utf8)
+        else {
+            return #"{"systemMessage":"✅ Prompt Gate approved this prompt."}"#
+        }
+        return json
+    }
+
+    private func chatMessage(for response: PromptGateResponse) -> String {
+        let statusLine = switch response.decision {
+        case .allow:
+            "✅ Prompt Gate approved this prompt."
+        case .deny:
+            "⛔ Prompt Gate blocked this prompt."
+        }
+        let detailLine = "💬 \(chatDescription(for: response))"
+        var lines = [statusLine, detailLine]
+        if let suggestedPrompt = response.suggestedPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !suggestedPrompt.isEmpty {
+            lines.append("Suggested prompt: \(suggestedPrompt)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func chatDescription(for response: PromptGateResponse) -> String {
+        let reason = response.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+        if let reason, !reason.isEmpty {
+            parts.append(reason)
+        } else {
+            parts.append(response.decision == .allow ? "BuildrAI found enough detail to continue." : "No reason provided.")
+        }
+        if let score = response.score {
+            var scoreDetail = "Score \(score)/100"
+            if let label = response.label?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !label.isEmpty {
+                scoreDetail += " (\(label))"
+            }
+            if let confidence = response.confidence?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !confidence.isEmpty {
+                scoreDetail += ", \(confidence) confidence"
+            }
+            parts.append(scoreDetail)
+        }
+        if response.decision == .deny,
+           let failureCategory = response.failureCategory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !failureCategory.isEmpty {
+            parts.append("Category: \(failureCategory)")
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
+private struct CodexHookOutput: Encodable {
+    let systemMessage: String
 }

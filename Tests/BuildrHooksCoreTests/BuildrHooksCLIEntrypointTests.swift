@@ -141,6 +141,7 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
         let clock = LockedClock(Date(timeIntervalSince1970: 1_700_000_000))
         let requestID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))
 
+        let stdout = LockedMessages()
         let stderr = LockedMessages()
         let promptGate = PromptGate(
             now: { clock.now },
@@ -149,7 +150,11 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
                 try? writePromptGateResponse(
                     repositoryRoot: repositoryRoot,
                     requestID: requestID.uuidString.lowercased(),
-                    decision: "allow"
+                    decision: "allow",
+                    reason: "Ready to proceed.",
+                    score: 92,
+                    label: "excellent",
+                    confidence: "high"
                 )
                 clock.advance(by: 0.1)
             },
@@ -159,6 +164,7 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
         let entrypoint = try makePromptSubmitEntrypoint(
             repositoryRoot: repositoryRoot,
             prompt: "#BuildrAI-Eval\nShip it.",
+            stdout: stdout,
             stderr: stderr,
             promptGate: promptGate
         )
@@ -170,6 +176,13 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
         #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "request.json").path))
         #expect(!FileManager.default.fileExists(atPath: promptEvalPath(repositoryRoot, "response.json").path))
         #expect(stderr.messages.isEmpty)
+        #expect(stdout.messages.count == 1)
+        let output = try #require(
+            try JSONSerialization.jsonObject(with: Data(stdout.messages[0].utf8)) as? [String: Any]
+        )
+        let systemMessage = try #require(output["systemMessage"] as? String)
+        #expect(systemMessage.contains("✅ Prompt Gate approved this prompt."))
+        #expect(systemMessage.contains("💬 Ready to proceed. Score 92/100 (excellent), high confidence"))
     }
 
     @Test
@@ -190,7 +203,9 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
                     repositoryRoot: repositoryRoot,
                     requestID: requestID.uuidString.lowercased(),
                     decision: "deny",
-                    reason: "Too risky."
+                    reason: "Too risky.",
+                    failureCategory: "evaluator_denied",
+                    suggestedPrompt: "Add acceptance criteria before continuing."
                 )
                 clock.advance(by: 0.1)
             },
@@ -209,10 +224,14 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
             Issue.record("Expected Prompt Gate denial.")
         } catch let exit as PromptGateExit {
             #expect(exit.code == .denied)
+            #expect(exit.code.rawValue == 2)
         }
 
         #expect(rawHookFiles(in: repositoryRoot).isEmpty)
+        #expect(stderr.messages.first?.contains("⛔ Prompt Gate blocked this prompt.") == true)
+        #expect(stderr.messages.first?.contains("💬 Too risky. Category: evaluator_denied") == true)
         #expect(stderr.messages.first?.contains("Too risky.") == true)
+        #expect(stderr.messages.first?.contains("Suggested prompt: Add acceptance criteria before continuing.") == true)
     }
 
     @Test
@@ -270,6 +289,7 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
     private func makePromptSubmitEntrypoint(
         repositoryRoot: URL,
         prompt: String,
+        stdout: LockedMessages = LockedMessages(),
         stderr: LockedMessages,
         promptGate: PromptGate = .init(timeout: 0, pollingInterval: 0)
     ) throws -> BuildrHooksCLIEntrypoint {
@@ -279,6 +299,7 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
         """
         return BuildrHooksCLIEntrypoint(
             standardInputProvider: { Data(payload.utf8) },
+            standardOutputWriter: { stdout.append($0) },
             standardErrorWriter: { stderr.append($0) },
             currentWorkingDirectoryProvider: { repositoryRoot.path },
             now: { Date(timeIntervalSince1970: 1_700_000_000) },
@@ -325,18 +346,41 @@ private func writePromptGateResponse(
     repositoryRoot: URL,
     requestID: String,
     decision: String,
-    reason: String? = nil
+    reason: String? = nil,
+    failureCategory: String? = nil,
+    suggestedPrompt: String? = nil,
+    score: Int? = nil,
+    label: String? = nil,
+    confidence: String? = nil
 ) throws {
     let responseURL = promptEvalPath(repositoryRoot, "response.json")
     guard !FileManager.default.fileExists(atPath: responseURL.path) else {
         return
     }
-    let reasonField: String = if let reason {
-        try #","reason":\#(jsonString(reason))"#
-    } else {
-        ""
+    var fields = [
+        #""version":1"#,
+        #""request_id":"\#(requestID)""#,
+        #""decision":"\#(decision)""#
+    ]
+    if let reason {
+        fields.append(try #""reason":\#(jsonString(reason))"#)
     }
-    let payload = #"{"version":1,"request_id":"\#(requestID)","decision":"\#(decision)"\#(reasonField)}"#
+    if let failureCategory {
+        fields.append(try #""failure_category":\#(jsonString(failureCategory))"#)
+    }
+    if let suggestedPrompt {
+        fields.append(try #""suggested_prompt":\#(jsonString(suggestedPrompt))"#)
+    }
+    if let score {
+        fields.append(#""score":\#(score)"#)
+    }
+    if let label {
+        fields.append(try #""label":\#(jsonString(label))"#)
+    }
+    if let confidence {
+        fields.append(try #""confidence":\#(jsonString(confidence))"#)
+    }
+    let payload = "{\(fields.joined(separator: ","))}"
     try payload.write(to: responseURL, atomically: true, encoding: .utf8)
 }
 
