@@ -14,13 +14,16 @@ public enum CodexHookRelayError: Error, Equatable, LocalizedError {
 public struct CodexRawHookEventFactory {
     private let parser: CodexHookPayloadParser
     private let gitContextReader: any HookGitContextReading
+    private let executionSurfaceResolver: CodexTranscriptExecutionSurfaceResolver
 
     public init(
         parser: CodexHookPayloadParser = .init(),
-        gitContextReader: any HookGitContextReading = FileSystemHookGitContextReader()
+        gitContextReader: any HookGitContextReading = FileSystemHookGitContextReader(),
+        executionSurfaceResolver: CodexTranscriptExecutionSurfaceResolver = .init()
     ) {
         self.parser = parser
         self.gitContextReader = gitContextReader
+        self.executionSurfaceResolver = executionSurfaceResolver
     }
 
     public func makeEvent(
@@ -45,6 +48,10 @@ public struct CodexRawHookEventFactory {
             turnID: parsed.turnID,
             repositoryFingerprint: gitContext?.repositoryFingerprint,
             gitContext: gitContext,
+            executionSurface: executionSurfaceResolver.resolve(
+                transcriptPath: parsed.transcriptPath,
+                sessionID: parsed.sessionID
+            ),
             rawPayload: rawString
         )
     }

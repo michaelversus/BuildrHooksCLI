@@ -64,7 +64,12 @@ struct CodexRawHookEventFactoryTests {
         #expect(event.turnID == testCase.expectedTurnID)
         #expect(event.repositoryFingerprint == "fingerprint-123")
         #expect(event.gitContext == gitContext)
+        #expect(event.executionSurface == nil)
         #expect(event.rawPayload == testCase.payload)
+
+        let encoded = try JSONEncoder().encode(event)
+        let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(json["execution_surface"] == nil)
     }
 
     @Test
@@ -85,6 +90,34 @@ struct CodexRawHookEventFactoryTests {
         #expect(event.turnID == "turn-42")
         #expect(event.repositoryFingerprint == nil)
         #expect(event.gitContext == nil)
+    }
+
+    @Test
+    func makeEventAddsTerminalExecutionSurfaceForKnownTranscriptOrigin() throws {
+        let event = try CodexRawHookEventFactory(
+            gitContextReader: HookGitContextReaderStub(gitContext: nil),
+            executionSurfaceResolver: CodexTranscriptExecutionSurfaceResolver(
+                readFile: { _ in Data(Self.cliTranscript.utf8) }
+            )
+        ).makeEvent(
+            kind: .sessionStart,
+            rawPayload: Data(#"{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl"}"#.utf8),
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            currentWorkingDirectory: "/tmp/worktree",
+            repositoryRoot: "/tmp/repo"
+        )
+
+        #expect(
+            event.executionSurface == CodexExecutionSurface(
+                kind: .terminal,
+                instanceID: "codex-session:session-42"
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(event)
+        let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let surface = try #require(json["execution_surface"] as? [String: String])
+        #expect(surface == ["kind": "terminal", "instanceID": "codex-session:session-42"])
     }
 
     @Test(arguments: invalidPayloadCases)
@@ -172,6 +205,10 @@ struct CodexRawHookEventFactoryTests {
             payload: #"{"session_id":null}"#
         )
     ]
+
+    private static let cliTranscript = #"""
+    {"type":"session_meta","payload":{"session_id":"session-42","originator":"codex_cli_rs","source":"cli"}}
+    """#
 }
 
 private struct HookGitContextReaderStub: HookGitContextReading {
