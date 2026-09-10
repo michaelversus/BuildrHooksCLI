@@ -26,6 +26,29 @@ Today it supports:
 - agent namespace: `codex`
 - hook events: `session-start`, `prompt-submit`, `stop`
 
+### BuildrAI Companion Monitoring execution-surface producer
+
+BuildrHooksCLI 1.2.0 and later supports BuildrAI's terminal Companion Monitoring
+producer capability through a compatibility adapter for Codex transcript
+metadata. When the hook's explicit `transcript_path` contains a matching
+`session_meta` record with `originator: codex_cli_rs` and `source: cli`, each
+emitted event includes:
+
+```json
+"execution_surface": {
+  "kind": "terminal",
+  "instanceID": "codex-session:<session_id>"
+}
+```
+
+For any other nonempty, session-matched `originator`, the event instead
+declares `"kind": "desktop"` with the same session-scoped ID. This includes
+`Codex Desktop` with `vscode` or `subagent` sources and the
+`codex_work_desktop` variant. Missing, malformed, unreadable, or mismatched
+metadata emits no surface; normal durable inbox behavior remains unchanged.
+This mapping is intentionally limited to known observed Codex metadata, so
+future schema changes are isolated to the adapter.
+
 ## 🛠️ Installation
 
 ### 🍺 Homebrew

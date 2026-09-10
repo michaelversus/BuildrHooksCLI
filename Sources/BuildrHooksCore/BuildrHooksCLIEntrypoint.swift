@@ -10,6 +10,7 @@ public struct BuildrHooksCLIEntrypoint {
     public var queue: RawHookEventQueue
     public var notifier: any HookEventNotifying
     public var promptGate: PromptGate
+    public var eventFactory: CodexRawHookEventFactory
 
     public init(
         standardInputProvider: @escaping @Sendable () -> Data = {
@@ -28,7 +29,8 @@ public struct BuildrHooksCLIEntrypoint {
         repositoryRootLocator: RepositoryRootLocator = .init(),
         queue: RawHookEventQueue = .init(),
         notifier: any HookEventNotifying = DistributedHookEventNotifier(),
-        promptGate: PromptGate = .init()
+        promptGate: PromptGate = .init(),
+        eventFactory: CodexRawHookEventFactory = .init()
     ) {
         self.standardInputProvider = standardInputProvider
         self.standardOutputWriter = standardOutputWriter
@@ -39,6 +41,7 @@ public struct BuildrHooksCLIEntrypoint {
         self.queue = queue
         self.notifier = notifier
         self.promptGate = promptGate
+        self.eventFactory = eventFactory
     }
 
     public func run(arguments: [String]) throws {
@@ -65,7 +68,7 @@ public struct BuildrHooksCLIEntrypoint {
                     )
                 }
 
-                let event = try CodexRawHookEventFactory().makeEvent(
+                let event = try eventFactory.makeEvent(
                     kind: kind,
                     rawPayload: payload,
                     createdAt: now(),

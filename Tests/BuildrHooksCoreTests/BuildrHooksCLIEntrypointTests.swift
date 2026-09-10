@@ -80,6 +80,51 @@ struct BuildrHooksCLIEntrypointTests { // swiftlint:disable:this type_body_lengt
     }
 
     @Test
+    func allCodexHooksPersistTheSameDeclaredTerminalExecutionSurface() throws {
+        let repositoryRoot = try temporaryDirectory(named: "execution-surface")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+        try createGitFixture(at: repositoryRoot)
+
+        let sessionID = "session-42"
+        let transcriptURL = repositoryRoot.appending(path: "session-42.jsonl")
+        let transcript = #"""
+        {"type":"session_meta","payload":{"session_id":"session-42","originator":"codex_cli_rs","source":"cli"}}
+        """#
+        try transcript.write(
+            to: transcriptURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let surface = CodexExecutionSurface(kind: .terminal, instanceID: "codex-session:\(sessionID)")
+        let payloads: [(HookEventKind, String)] = [
+            (.sessionStart, #"{"session_id":"session-42","transcript_path":"TRANSCRIPT_PATH"}"#),
+            (
+                .promptSubmit,
+                #"{"session_id":"session-42","transcript_path":"TRANSCRIPT_PATH","prompt":"Inspect the failing test"}"#
+            ),
+            (.stop, #"{"session_id":"session-42","transcript_path":"TRANSCRIPT_PATH"}"#)
+        ]
+
+        for (kind, template) in payloads {
+            let payload = template.replacingOccurrences(of: "TRANSCRIPT_PATH", with: transcriptURL.path)
+            let entrypoint = BuildrHooksCLIEntrypoint(
+                standardInputProvider: { Data(payload.utf8) },
+                currentWorkingDirectoryProvider: { repositoryRoot.path },
+                queue: RawHookEventQueue(),
+                notifier: HookEventNotifierSpy()
+            )
+            try entrypoint.run(arguments: ["buildrhooks", "codex", kind.rawValue])
+        }
+
+        let events = try rawHookFiles(in: repositoryRoot).map { url in
+            try JSONDecoder.buildrHooksDecoder.decode(RawHookEvent.self, from: Data(contentsOf: url))
+        }
+        #expect(events.count == 3)
+        #expect(events.map(\.eventKind).sorted { $0.rawValue < $1.rawValue } == [.promptSubmit, .sessionStart, .stop])
+        #expect(events.allSatisfy { $0.executionSurface == surface })
+    }
+
+    @Test
     func taggedPromptWithMissingMarkerExitsSetupErrorAndDoesNotEnqueue() throws {
         let repositoryRoot = try temporaryDirectory(named: "prompt-gate-missing-marker")
         defer { try? FileManager.default.removeItem(at: repositoryRoot) }
