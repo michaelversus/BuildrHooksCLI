@@ -42,10 +42,11 @@ emitted event includes:
 ```
 
 The session ID must match the hook event. This session-scoped declaration does
-not identify a physical terminal window. Unknown, Desktop, missing, malformed,
-unreadable, or mismatched transcript metadata emits no surface; the normal
-durable inbox behavior remains unchanged. This mapping is intentionally limited
-to known observed Codex metadata, so future schema changes are isolated to the
+not identify a physical terminal window. `Codex Desktop` records with `vscode`
+or `subagent` sources, the `codex_work_desktop` variant, and unknown, missing,
+malformed, unreadable, or mismatched metadata emit no surface; normal durable
+inbox behavior remains unchanged. This mapping is intentionally limited to
+known observed Codex metadata, so future schema changes are isolated to the
 adapter.
 
 ## 🛠️ Installation

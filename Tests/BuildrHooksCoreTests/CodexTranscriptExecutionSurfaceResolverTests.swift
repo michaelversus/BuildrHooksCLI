@@ -46,6 +46,9 @@ struct CodexTranscriptSurfaceTests {
         "session_id":"session-42","originator":"Codex Desktop","source":"vscode"
         """),
         sessionMeta("""
+        "session_id":"session-42","originator":"Codex Desktop","source":"subagent"
+        """),
+        sessionMeta("""
         "session_id":"session-42","originator":"codex_work_desktop","source":"vscode"
         """),
         sessionMeta("""
