@@ -3,6 +3,7 @@ import Foundation
 public struct CodexExecutionSurface: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case terminal
+        case desktop
     }
 
     public let kind: Kind
@@ -45,13 +46,19 @@ public struct CodexTranscriptExecutionSurfaceResolver: Sendable {
             guard
                 let payload = record["payload"] as? [String: Any],
                 payload["session_id"] as? String == sessionID,
-                payload["originator"] as? String == "codex_cli_rs",
-                payload["source"] as? String == "cli"
+                let originator = payload["originator"] as? String
             else {
                 return nil
             }
 
-            return CodexExecutionSurface(kind: .terminal, instanceID: "codex-session:\(sessionID)")
+            if originator == "codex_cli_rs" {
+                guard payload["source"] as? String == "cli" else {
+                    return nil
+                }
+                return CodexExecutionSurface(kind: .terminal, instanceID: "codex-session:\(sessionID)")
+            }
+
+            return CodexExecutionSurface(kind: .desktop, instanceID: "codex-session:\(sessionID)")
         }
 
         return nil

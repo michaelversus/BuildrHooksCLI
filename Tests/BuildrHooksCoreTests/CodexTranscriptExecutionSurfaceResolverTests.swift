@@ -13,14 +13,14 @@ struct CodexTranscriptSurfaceTests {
         #expect(surface == CodexExecutionSurface(kind: .terminal, instanceID: "codex-session:session-42"))
     }
 
-    @Test(arguments: undeclaredFixtures)
-    func resolveLeavesUnknownOrUnsupportedOriginsUnavailable(fixture: String) {
+    @Test(arguments: desktopFixtures)
+    func resolveDeclaresDesktopForNonCLIOriginator(fixture: String) {
         let surface = resolver(for: fixture).resolve(
             transcriptPath: "/tmp/transcript.jsonl",
             sessionID: "session-42"
         )
 
-        #expect(surface == nil)
+        #expect(surface == CodexExecutionSurface(kind: .desktop, instanceID: "codex-session:session-42"))
     }
 
     @Test
@@ -41,7 +41,7 @@ struct CodexTranscriptSurfaceTests {
     {"type":"session_meta","payload":{"session_id":"session-42","originator":"codex_cli_rs","source":"cli"}}
     """#
 
-    private static let undeclaredFixtures = [
+    private static let desktopFixtures = [
         sessionMeta("""
         "session_id":"session-42","originator":"Codex Desktop","source":"vscode"
         """),
@@ -55,6 +55,12 @@ struct CodexTranscriptSurfaceTests {
         "session_id":"session-42","originator":"other","source":"cli"
         """),
         sessionMeta("""
+        "session_id":"session-42","originator":"other"
+        """)
+    ]
+
+    private static let undeclaredFixtures = [
+        sessionMeta("""
         "session_id":"other-session","originator":"codex_cli_rs","source":"cli"
         """),
         sessionMeta("""
@@ -66,6 +72,16 @@ struct CodexTranscriptSurfaceTests {
         #"{"type":"session_meta","payload":null}"#,
         "not-json"
     ]
+
+    @Test(arguments: undeclaredFixtures)
+    func resolveLeavesMissingOrMalformedMetadataUnavailable(fixture: String) {
+        let surface = resolver(for: fixture).resolve(
+            transcriptPath: "/tmp/transcript.jsonl",
+            sessionID: "session-42"
+        )
+
+        #expect(surface == nil)
+    }
 
     private static func sessionMeta(_ payload: String) -> String {
         "{\"type\":\"session_meta\",\"payload\":{\(payload)}}"
