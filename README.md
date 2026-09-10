@@ -28,7 +28,7 @@ Today it supports:
 
 ### BuildrAI Companion Monitoring execution-surface producer
 
-BuildrHooksCLI 1.2.0 and later supports BuildrAI's terminal Companion Monitoring
+The next BuildrHooksCLI release supports BuildrAI's terminal Companion Monitoring
 producer capability through a compatibility adapter for Codex transcript
 metadata. When the hook's explicit `transcript_path` contains a matching
 `session_meta` record with `originator: codex_cli_rs` and `source: cli`, each
