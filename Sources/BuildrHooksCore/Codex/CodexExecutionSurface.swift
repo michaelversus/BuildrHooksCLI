@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CodexExecutionSurface: Codable, Equatable, Sendable {
+public struct ExecutionSurface: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case terminal
         case desktop
@@ -14,6 +14,8 @@ public struct CodexExecutionSurface: Codable, Equatable, Sendable {
         self.instanceID = instanceID
     }
 }
+
+public typealias CodexExecutionSurface = ExecutionSurface
 
 public struct CodexTranscriptExecutionSurfaceResolver: Sendable {
     private let readFile: @Sendable (String) -> Data?

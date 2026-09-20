@@ -44,7 +44,7 @@ public struct RawHookEvent: Codable, Equatable, Sendable {
     public let turnID: String?
     public let repositoryFingerprint: String?
     public let gitContext: HookGitContext?
-    public let executionSurface: CodexExecutionSurface?
+    public let executionSurface: ExecutionSurface?
     public let rawPayload: String
 
     enum CodingKeys: String, CodingKey {
@@ -77,7 +77,7 @@ public struct RawHookEvent: Codable, Equatable, Sendable {
         turnID: String? = nil,
         repositoryFingerprint: String? = nil,
         gitContext: HookGitContext? = nil,
-        executionSurface: CodexExecutionSurface? = nil,
+        executionSurface: ExecutionSurface? = nil,
         rawPayload: String
     ) {
         self.payloadVersion = payloadVersion
