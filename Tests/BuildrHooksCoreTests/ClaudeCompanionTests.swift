@@ -46,6 +46,57 @@ struct ClaudeCompanionTests {
     }
 
     @Test
+    func resolverLeavesNonUTF8TranscriptUnavailable() {
+        let resolver = ClaudeTranscriptExecutionSurfaceResolver(readFile: { _ in Data([0xFF]) })
+
+        #expect(resolver.resolveClaudeDesktopSurface(
+            transcriptPath: "/tmp/session-42.jsonl",
+            sessionID: "session-42"
+        ) == nil)
+    }
+
+    @Test
+    func parserRejectsPromptSubmitWithoutPrompt() {
+        #expect(throws: ClaudeHookRelayError.invalidPayload) {
+            try ClaudeHookPayloadParser().parse(
+                kind: .promptSubmit,
+                data: Data(#"{"session_id":"session-42"}"#.utf8)
+            )
+        }
+    }
+
+    @Test
+    func parserMapsMalformedPayloadToInvalidPayload() {
+        #expect(throws: ClaudeHookRelayError.invalidPayload) {
+            try ClaudeHookPayloadParser().parse(kind: .sessionStart, data: Data("not-json".utf8))
+        }
+    }
+
+    @Test
+    func invalidPayloadProvidesAPublicDescription() {
+        #expect(ClaudeHookRelayError.invalidPayload.errorDescription == "Invalid Claude Code hook payload.")
+    }
+
+    @Test
+    func malformedClaudeHookLogsWarningWithoutThrowing() throws {
+        let repositoryRoot = try temporaryDirectory(named: "claude-parse-failure")
+        defer { try? FileManager.default.removeItem(at: repositoryRoot) }
+
+        let stderr = LockedMessages()
+        let entrypoint = BuildrHooksCLIEntrypoint(
+            standardInputProvider: { Data("not-json".utf8) },
+            standardErrorWriter: { stderr.append($0) },
+            currentWorkingDirectoryProvider: { repositoryRoot.path },
+            notifier: HookEventNotifierSpy()
+        )
+
+        try entrypoint.run(arguments: ["buildrhooks", "claude", "session-start"])
+
+        #expect(stderr.messages == ["BuildrHooksCLI warning: Invalid Claude Code hook payload."])
+        #expect((try? rawHookFiles(in: repositoryRoot).isEmpty) ?? true)
+    }
+
+    @Test
     func claudeLifecycleEventsEnqueuePromptAndResolvedSurfaceWithoutPromptGate() throws {
         let repositoryRoot = try temporaryDirectory(named: "claude-companion")
         defer { try? FileManager.default.removeItem(at: repositoryRoot) }
