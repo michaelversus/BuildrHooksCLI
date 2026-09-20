@@ -4,6 +4,7 @@
 name: BuildrHooksCLI Unit Tests
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
   pull_request:
@@ -22,14 +23,19 @@ jobs:
     - name: Generate coverage report (lcov)
       run: |
         set -euo pipefail
-        BIN_PATH="$(swift build --show-bin-path)"
-        TEST_BUNDLE="${BIN_PATH}/BuildrHooksCLIPackageTests.xctest/Contents/MacOS/BuildrHooksCLIPackageTests"
-        PROF_DATA="${BIN_PATH}/codecov/default.profdata"
-        xcrun llvm-cov export \
-          -format=lcov \
-          "${TEST_BUNDLE}" \
-          -instr-profile "${PROF_DATA}" \
-          > info.lcov
+        COVERAGE_JSON="$(swift test --show-codecov-path)"
+        test -s "${COVERAGE_JSON}"
+        jq --arg source_root "${GITHUB_WORKSPACE}/Sources/" -r '
+          .data[].files[]
+          | select(.filename | startswith($source_root))
+          | .filename as $file
+          | ([.segments[] | select(.[3] == true) | {line: .[0], count: .[2]}]
+             | sort_by(.line) | group_by(.line)) as $lines
+          | "SF:\($file)",
+            ($lines[] | "DA:\(.[0].line),\([.[].count] | max)"),
+            "end_of_record"
+        ' "${COVERAGE_JSON}" > info.lcov
+        test -s info.lcov
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
       with:

@@ -19,11 +19,11 @@ For the under-the-hood design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 🎯 What It Is For
 
-Use this tool when you want to capture Codex lifecycle hooks from the command line and hand them off to BuildrAI for later processing.
+Use this tool when you want to capture supported coding-agent lifecycle hooks and hand them off to BuildrAI for later processing.
 
 Today it supports:
 
-- agent namespace: `codex`
+- agent namespaces: `codex`, `claude`
 - hook events: `session-start`, `prompt-submit`, `stop`
 
 ### BuildrAI Companion Monitoring execution-surface producer
@@ -48,6 +48,22 @@ declares `"kind": "desktop"` with the same session-scoped ID. This includes
 metadata emits no surface; normal durable inbox behavior remains unchanged.
 This mapping is intentionally limited to known observed Codex metadata, so
 future schema changes are isolated to the adapter.
+
+Claude Code Desktop uses the hook-declared transcript only. A matching JSONL
+record whose latest `entrypoint` is `claude-desktop` emits:
+
+```json
+"execution_surface": {
+  "kind": "desktop",
+  "instanceID": "claude-session:<session_id>"
+}
+```
+
+Missing, malformed, mismatched, or non-Desktop transcript evidence emits no
+surface. A session later resumed in a terminal likewise emits no Desktop
+surface. BuildrAI's host app owns project selection and the safe management of
+its named `.claude/settings.local.json` entries; this CLI does not edit Claude
+settings.
 
 ## 🛠️ Installation
 
@@ -115,12 +131,15 @@ swiftformat --config .swiftformat .
 buildrhooks --version
 buildrhooks --help
 buildrhooks codex --help
+buildrhooks claude --help
+buildrhooks capabilities --json
 ```
 
 ### ⌨️ Basic Command Shape
 
 ```bash
 buildrhooks codex <event>
+buildrhooks claude <event>
 ```
 
 The hook payload must be provided on standard input as JSON.
@@ -138,6 +157,17 @@ echo '{"session_id":"session-42","prompt":"Summarize this repo","transcript_path
 ```bash
 echo '{"session_id":"session-42","transcript_path":"/tmp/session-42.jsonl","model":"gpt-5"}' | buildrhooks codex stop
 ```
+
+Claude Code hooks use the same normalized event names:
+
+```bash
+echo '{"session_id":"session-42","prompt":"Summarize this repo","transcript_path":"/tmp/session-42.jsonl","model":"claude-opus"}' | buildrhooks claude prompt-submit
+```
+
+Use `buildrhooks capabilities --json` for a versioned, machine-readable list
+of supported agents, lifecycle events, and Claude Desktop transcript-surface
+support. BuildrAI should block Claude setup when this document does not declare
+the required capability.
 
 ## 📦 Supported Payloads
 
@@ -351,7 +381,7 @@ The package uses the Swift Testing framework and includes coverage for CLI entry
 
 ## Current Limitations
 
-- Only the `codex` agent is supported.
+- Claude settings installation and repair are owned by the BuildrAI host app.
 - Only `session-start`, `prompt-submit`, and `stop` are supported.
 - The tool assumes macOS for distributed notifications.
 - Queue persistence is filesystem-based and repository-local.

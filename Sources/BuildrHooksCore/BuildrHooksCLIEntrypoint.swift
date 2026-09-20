@@ -10,7 +10,8 @@ public struct BuildrHooksCLIEntrypoint {
     public var queue: RawHookEventQueue
     public var notifier: any HookEventNotifying
     public var promptGate: PromptGate
-    public var eventFactory: CodexRawHookEventFactory
+    public var codexEventFactory: CodexRawHookEventFactory
+    public var claudeEventFactory: ClaudeRawHookEventFactory
 
     public init(
         standardInputProvider: @escaping @Sendable () -> Data = {
@@ -30,7 +31,8 @@ public struct BuildrHooksCLIEntrypoint {
         queue: RawHookEventQueue = .init(),
         notifier: any HookEventNotifying = DistributedHookEventNotifier(),
         promptGate: PromptGate = .init(),
-        eventFactory: CodexRawHookEventFactory = .init()
+        codexEventFactory: CodexRawHookEventFactory = .init(),
+        claudeEventFactory: ClaudeRawHookEventFactory = .init()
     ) {
         self.standardInputProvider = standardInputProvider
         self.standardOutputWriter = standardOutputWriter
@@ -41,7 +43,8 @@ public struct BuildrHooksCLIEntrypoint {
         self.queue = queue
         self.notifier = notifier
         self.promptGate = promptGate
-        self.eventFactory = eventFactory
+        self.codexEventFactory = codexEventFactory
+        self.claudeEventFactory = claudeEventFactory
     }
 
     public func run(arguments: [String]) throws {
@@ -50,42 +53,70 @@ public struct BuildrHooksCLIEntrypoint {
             throw BuildrHooksCLIError.unsupportedCommand(components)
         }
 
-        switch components[0] {
-        case HookAgentKind.codex.rawValue:
-            let kind = try hookEventKind(for: components[1])
-            let payload = standardInputProvider()
-            let cwd = currentWorkingDirectoryProvider()
-            let repositoryRootURL = repositoryRootLocator.repositoryRoot(startingAt: cwd)
-
-            do {
-                if kind == .promptSubmit {
-                    let parsedPayload = try CodexHookPayloadParser().parse(kind: kind, data: payload)
-                    var promptGate = promptGate
-                    promptGate.hookOutputWriter = standardOutputWriter
-                    _ = try promptGate.evaluateIfTagged(
-                        payload: parsedPayload,
-                        repositoryRoot: repositoryRootURL
-                    )
-                }
-
-                let event = try eventFactory.makeEvent(
-                    kind: kind,
-                    rawPayload: payload,
-                    createdAt: now(),
-                    currentWorkingDirectory: cwd,
-                    repositoryRoot: repositoryRootURL.path
-                )
-                _ = try queue.enqueue(event, in: repositoryRootURL)
-                notifier.postHookEventEnqueued(repositoryRootPath: repositoryRootURL.path)
-            } catch let exit as PromptGateExit {
-                standardErrorWriter(exit.message)
-                throw exit
-            } catch {
-                standardErrorWriter("BuildrHooksCLI warning: \(error.localizedDescription)")
-            }
-        default:
+        guard let agent = HookAgentKind(rawValue: components[0]) else {
             throw BuildrHooksCLIError.unsupportedAgent(components[0])
         }
+
+        switch agent {
+        case .codex:
+            let kind = try hookEventKind(for: components[1])
+            try runCodexHook(kind: kind)
+        case .claude:
+            let kind = try hookEventKind(for: components[1])
+            runClaudeHook(kind: kind)
+        }
+    }
+
+    private func runCodexHook(kind: HookEventKind) throws {
+        let payload = standardInputProvider()
+        let cwd = currentWorkingDirectoryProvider()
+        let repositoryRootURL = repositoryRootLocator.repositoryRoot(startingAt: cwd)
+
+        do {
+            if kind == .promptSubmit {
+                let parsedPayload = try CodexHookPayloadParser().parse(kind: kind, data: payload)
+                var promptGate = promptGate
+                promptGate.hookOutputWriter = standardOutputWriter
+                _ = try promptGate.evaluateIfTagged(payload: parsedPayload, repositoryRoot: repositoryRootURL)
+            }
+            let event = try codexEventFactory.makeEvent(
+                kind: kind,
+                rawPayload: payload,
+                createdAt: now(),
+                currentWorkingDirectory: cwd,
+                repositoryRoot: repositoryRootURL.path
+            )
+            try enqueue(event, in: repositoryRootURL)
+        } catch let exit as PromptGateExit {
+            standardErrorWriter(exit.message)
+            throw exit
+        } catch {
+            standardErrorWriter("BuildrHooksCLI warning: \(error.localizedDescription)")
+        }
+    }
+
+    private func runClaudeHook(kind: HookEventKind) {
+        let payload = standardInputProvider()
+        let cwd = currentWorkingDirectoryProvider()
+        let repositoryRootURL = repositoryRootLocator.repositoryRoot(startingAt: cwd)
+
+        do {
+            let event = try claudeEventFactory.makeEvent(
+                kind: kind,
+                rawPayload: payload,
+                createdAt: now(),
+                currentWorkingDirectory: cwd,
+                repositoryRoot: repositoryRootURL.path
+            )
+            try enqueue(event, in: repositoryRootURL)
+        } catch {
+            standardErrorWriter("BuildrHooksCLI warning: \(error.localizedDescription)")
+        }
+    }
+
+    private func enqueue(_ event: RawHookEvent, in repositoryRoot: URL) throws {
+        _ = try queue.enqueue(event, in: repositoryRoot)
+        notifier.postHookEventEnqueued(repositoryRootPath: repositoryRoot.path)
     }
 
     private func hookEventKind(for value: String) throws -> HookEventKind {
