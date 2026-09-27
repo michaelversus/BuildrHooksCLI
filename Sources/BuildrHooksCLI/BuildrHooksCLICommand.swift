@@ -17,6 +17,7 @@ struct CodexCommand: ParsableCommand {
         commandName: HookAgentKind.codex.rawValue,
         abstract: "Ingest a Codex hook event.",
         subcommands: [
+            CodexToolStartCommand.self,
             CodexSessionStartCommand.self,
             CodexPromptSubmitCommand.self,
             CodexStopCommand.self
@@ -24,16 +25,43 @@ struct CodexCommand: ParsableCommand {
     )
 }
 
+struct CodexToolStartCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "tool-start",
+        abstract: "Relay a content-free Codex tool-start event."
+    )
+
+    func run() throws {
+        try BuildrHooksCLIEntrypoint().run(
+            arguments: [CommandLine.arguments.first ?? "buildrhooks", "codex", "tool-start"]
+        )
+    }
+}
+
 struct ClaudeCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: HookAgentKind.claude.rawValue,
         abstract: "Ingest a Claude Code hook event.",
         subcommands: [
+            ClaudeToolStartCommand.self,
             ClaudeSessionStartCommand.self,
             ClaudePromptSubmitCommand.self,
             ClaudeStopCommand.self
         ]
     )
+}
+
+struct ClaudeToolStartCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "tool-start",
+        abstract: "Relay a content-free Claude Code tool-start event."
+    )
+
+    func run() throws {
+        try BuildrHooksCLIEntrypoint().run(
+            arguments: [CommandLine.arguments.first ?? "buildrhooks", "claude", "tool-start"]
+        )
+    }
 }
 
 private protocol HookEventExecutable: ParsableCommand {
