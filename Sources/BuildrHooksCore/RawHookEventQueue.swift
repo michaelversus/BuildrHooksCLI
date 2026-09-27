@@ -39,7 +39,7 @@ public struct RawHookEventQueue {
     }
 
     @discardableResult
-    public func enqueue(_ event: RawHookEvent, in repositoryRoot: URL) throws -> URL {
+    public func enqueue(_ event: some Encodable, in repositoryRoot: URL) throws -> URL {
         let paths = paths(for: repositoryRoot)
         try fileManager.createDirectory(
             at: paths.rawHooksDirectory,

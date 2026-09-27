@@ -5,7 +5,7 @@
 
 # 🪝 BuildrHooksCLI
 
-`BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex hook events into BuildrAI's repository-local raw hook queue.
+`BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex and Claude Code hook events into BuildrAI's repository-local raw hook queue.
 
 It reads JSON from standard input, normalizes the payload into a queue event, writes that event under:
 
@@ -24,7 +24,23 @@ Use this tool when you want to capture supported coding-agent lifecycle hooks an
 Today it supports:
 
 - agent namespaces: `codex`, `claude`
-- hook events: `session-start`, `prompt-submit`, `stop`
+- lifecycle hook events: `session-start`, `prompt-submit`, `stop`
+- tool-start events: `codex tool-start`, `claude tool-start`
+
+Codex and Claude Code `PreToolUse` hooks can emit content-free tool-start
+events beginning with BuildrHooksCLI 1.3.0. Configure the hook command as
+`buildrhooks codex tool-start` or `buildrhooks claude tool-start`; register each
+as observational telemetry so it does not decide whether a tool may run. Older
+CLI installations do not emit this event, so BuildrAI should continue using
+transcript evidence or report tool activity as unavailable.
+
+The event contains `schema_version`, `event_type`, `source`, `session_id`,
+`tool_name`, and the CLI receipt `timestamp`, plus `execution_surface`,
+`invocation_id`, and `subagent_id` when supported by the hook evidence. Codex
+supplies its parent session ID to subagent tool hooks, so the CLI preserves
+that ID and does not infer a subagent identity. Claude supplies `agent_id` for
+subagent tool calls; the CLI relays it as `subagent_id`. Tool input and output
+are never copied into this event.
 
 ### BuildrAI Companion Monitoring execution-surface producer
 
