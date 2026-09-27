@@ -1,0 +1,130 @@
+import Foundation
+
+public struct ClaudeToolStartEvent: Codable, Equatable, Sendable {
+    public static let currentSchemaVersion = 1
+
+    public let schemaVersion: Int
+    public let eventType: String
+    public let source: HookAgentKind
+    public let sessionID: String
+    public let executionSurface: ExecutionSurface?
+    public let toolName: String
+    public let timestamp: Date
+    public let invocationID: String?
+    public let subagentID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case eventType = "event_type"
+        case source
+        case sessionID = "session_id"
+        case executionSurface = "execution_surface"
+        case toolName = "tool_name"
+        case timestamp
+        case invocationID = "invocation_id"
+        case subagentID = "subagent_id"
+    }
+
+    public init(
+        sessionID: String,
+        executionSurface: ExecutionSurface?,
+        toolName: String,
+        timestamp: Date,
+        invocationID: String?,
+        subagentID: String?
+    ) {
+        schemaVersion = Self.currentSchemaVersion
+        eventType = "tool_start"
+        source = .claude
+        self.sessionID = sessionID
+        self.executionSurface = executionSurface
+        self.toolName = toolName
+        self.timestamp = timestamp
+        self.invocationID = invocationID
+        self.subagentID = subagentID
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(eventType, forKey: .eventType)
+        try container.encode(source, forKey: .source)
+        try container.encode(sessionID, forKey: .sessionID)
+        try container.encodeIfPresent(executionSurface, forKey: .executionSurface)
+        try container.encode(toolName, forKey: .toolName)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(invocationID, forKey: .invocationID)
+        try container.encodeIfPresent(subagentID, forKey: .subagentID)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        eventType = try container.decode(String.self, forKey: .eventType)
+        source = try container.decode(HookAgentKind.self, forKey: .source)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        executionSurface = try container.decodeIfPresent(ExecutionSurface.self, forKey: .executionSurface)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        invocationID = try container.decodeIfPresent(String.self, forKey: .invocationID)
+        subagentID = try container.decodeIfPresent(String.self, forKey: .subagentID)
+    }
+}
+
+private struct ClaudeToolStartInput: Decodable {
+    let sessionID: String
+    let transcriptPath: String?
+    let toolName: String
+    let invocationID: String?
+    let subagentID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id"
+        case transcriptPath = "transcript_path"
+        case toolName = "tool_name"
+        case invocationID = "tool_use_id"
+        case subagentID = "agent_id"
+    }
+}
+
+public struct ClaudeToolStartEventFactory: Sendable {
+    private let executionSurfaceResolver: ClaudeTranscriptExecutionSurfaceResolver
+
+    public init(executionSurfaceResolver: ClaudeTranscriptExecutionSurfaceResolver = .init()) {
+        self.executionSurfaceResolver = executionSurfaceResolver
+    }
+
+    public func makeEvent(rawPayload: Data, timestamp: Date) throws -> ClaudeToolStartEvent {
+        let input: ClaudeToolStartInput
+        do {
+            input = try JSONDecoder().decode(ClaudeToolStartInput.self, from: rawPayload)
+        } catch {
+            throw ClaudeHookRelayError.invalidPayload
+        }
+
+        guard
+            !input.sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !input.toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw ClaudeHookRelayError.invalidPayload
+        }
+
+        let invocationID = input.invocationID.flatMap(Self.nonemptySourceValue)
+        let subagentID = input.subagentID.flatMap(Self.nonemptySourceValue)
+        return ClaudeToolStartEvent(
+            sessionID: input.sessionID,
+            executionSurface: executionSurfaceResolver.resolveClaudeDesktopSurface(
+                transcriptPath: input.transcriptPath,
+                sessionID: input.sessionID
+            ),
+            toolName: input.toolName,
+            timestamp: timestamp,
+            invocationID: invocationID,
+            subagentID: subagentID
+        )
+    }
+
+    private static func nonemptySourceValue(_ value: String) -> String? {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+    }
+}

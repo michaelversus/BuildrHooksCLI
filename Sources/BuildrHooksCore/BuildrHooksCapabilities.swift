@@ -12,6 +12,6 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
         agents: [.codex, .claude],
         lifecycleEvents: [.sessionStart, .promptSubmit, .stop],
         claudeDesktopTranscriptSurfaceResolver: true,
-        toolStartEvents: [.codex]
+        toolStartEvents: [.codex, .claude]
     )
 }

@@ -43,11 +43,25 @@ struct ClaudeCommand: ParsableCommand {
         commandName: HookAgentKind.claude.rawValue,
         abstract: "Ingest a Claude Code hook event.",
         subcommands: [
+            ClaudeToolStartCommand.self,
             ClaudeSessionStartCommand.self,
             ClaudePromptSubmitCommand.self,
             ClaudeStopCommand.self
         ]
     )
+}
+
+struct ClaudeToolStartCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "tool-start",
+        abstract: "Relay a content-free Claude Code tool-start event."
+    )
+
+    func run() throws {
+        try BuildrHooksCLIEntrypoint().run(
+            arguments: [CommandLine.arguments.first ?? "buildrhooks", "claude", "tool-start"]
+        )
+    }
 }
 
 private protocol HookEventExecutable: ParsableCommand {

@@ -6,6 +6,7 @@ struct BuildrHooksCLICommandTests {
     func configurationVersionMatchesSharedVersionConstant() {
         #expect(BuildrHooksCLICommand.configuration.version == version)
         #expect(CodexToolStartCommand.configuration.commandName == "tool-start")
+        #expect(ClaudeToolStartCommand.configuration.commandName == "tool-start")
     }
 
     @Test

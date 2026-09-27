@@ -66,8 +66,25 @@ public struct BuildrHooksCLIEntrypoint {
             let kind = try hookEventKind(for: components[1])
             try runCodexHook(kind: kind)
         case .claude:
+            if components[1] == "tool-start" {
+                runClaudeToolStart()
+                return
+            }
             let kind = try hookEventKind(for: components[1])
             runClaudeHook(kind: kind)
+        }
+    }
+
+    private func runClaudeToolStart() {
+        let payload = standardInputProvider()
+        let cwd = currentWorkingDirectoryProvider()
+        let repositoryRootURL = repositoryRootLocator.repositoryRoot(startingAt: cwd)
+
+        do {
+            let event = try ClaudeToolStartEventFactory().makeEvent(rawPayload: payload, timestamp: now())
+            try enqueue(event, in: repositoryRootURL)
+        } catch {
+            standardErrorWriter("BuildrHooksCLI warning: \(error.localizedDescription)")
         }
     }
 
