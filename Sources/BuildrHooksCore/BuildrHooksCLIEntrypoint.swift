@@ -59,11 +59,28 @@ public struct BuildrHooksCLIEntrypoint {
 
         switch agent {
         case .codex:
+            if components[1] == "tool-start" {
+                runCodexToolStart()
+                return
+            }
             let kind = try hookEventKind(for: components[1])
             try runCodexHook(kind: kind)
         case .claude:
             let kind = try hookEventKind(for: components[1])
             runClaudeHook(kind: kind)
+        }
+    }
+
+    private func runCodexToolStart() {
+        let payload = standardInputProvider()
+        let cwd = currentWorkingDirectoryProvider()
+        let repositoryRootURL = repositoryRootLocator.repositoryRoot(startingAt: cwd)
+
+        do {
+            let event = try CodexToolStartEventFactory().makeEvent(rawPayload: payload, timestamp: now())
+            try enqueue(event, in: repositoryRootURL)
+        } catch {
+            standardErrorWriter("BuildrHooksCLI warning: \(error.localizedDescription)")
         }
     }
 
@@ -114,7 +131,7 @@ public struct BuildrHooksCLIEntrypoint {
         }
     }
 
-    private func enqueue(_ event: RawHookEvent, in repositoryRoot: URL) throws {
+    private func enqueue(_ event: some Encodable, in repositoryRoot: URL) throws {
         _ = try queue.enqueue(event, in: repositoryRoot)
         notifier.postHookEventEnqueued(repositoryRootPath: repositoryRoot.path)
     }
