@@ -121,25 +121,47 @@ jobs:
             +refs/heads/develop:refs/remotes/origin/develop
 
           SYNC_BRANCH="sync/develop-to-main/${VERSION}"
-          if git show-ref --verify --quiet "refs/remotes/origin/${SYNC_BRANCH}"; then
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null; then
+            git fetch origin "refs/heads/${SYNC_BRANCH}:refs/remotes/origin/${SYNC_BRANCH}"
             git switch --create "$SYNC_BRANCH" "origin/$SYNC_BRANCH"
           else
             git switch --create "$SYNC_BRANCH" origin/main
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git merge --no-ff origin/develop \
-            -m "Merge develop into main after release ${VERSION}"
-          git push origin "HEAD:${SYNC_BRANCH}"
-
-          TITLE="Sync develop into main after release ${VERSION}"
-          BODY="This pull request syncs the released develop branch into main."
-          if gh pr view "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null | grep -q '^OPEN$'; then
-            gh pr edit "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
-              --title "$TITLE" --body "$BODY"
+          if git merge --no-ff origin/develop \
+            -m "Merge develop into main after release ${VERSION}"; then
+            if git push origin "HEAD:main"; then
+              echo "Merged develop into main for release ${VERSION}."
+              exit 0
+            fi
+            echo "::warning::Could not push the clean merge to main; opening a pull request instead."
           else
-            gh pr create --repo "$GITHUB_REPOSITORY" \
-              --base main --head "$SYNC_BRANCH" \
-              --title "$TITLE" --body "$BODY"
+            echo "::warning::The sync has merge conflicts; opening a pull request for manual resolution."
+            git merge --abort
+            git reset --hard origin/develop
           fi
+
+          git push origin "HEAD:${SYNC_BRANCH}"
+          TITLE="Sync develop into main after release ${VERSION}"
+          BODY="This pull request syncs the released develop branch into main. Resolve any merge conflicts on this pull request."
+          PR_STATE=$(gh pr view "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null || true)
+          case "$PR_STATE" in
+            OPEN)
+              gh pr edit "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+                --title "$TITLE" --body "$BODY"
+              ;;
+            CLOSED)
+              gh pr reopen "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY"
+              ;;
+            MERGED)
+              echo "Sync pull request for release ${VERSION} is already merged."
+              ;;
+            *)
+              gh pr create --repo "$GITHUB_REPOSITORY" \
+                --base main --head "$SYNC_BRANCH" \
+                --title "$TITLE" --body "$BODY"
+              ;;
+          esac
