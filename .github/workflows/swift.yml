@@ -3,6 +3,9 @@
 
 name: BuildrHooksCLI Unit Tests
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
@@ -12,14 +15,17 @@ on:
 
 jobs:
   build:
-
     runs-on: macos-14
+    timeout-minutes: 20
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: SwiftyLab/setup-swift@latest
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+    - uses: SwiftyLab/setup-swift@9014d4136569075c696d4151c7810ecde8712907 # latest, pinned 2026-09-28
+      with:
+        swift-version: '6.2.4'
     - name: Run tests with coverage
-      run: swift test --enable-code-coverage
+      timeout-minutes: 12
+      run: swift test --no-parallel --enable-code-coverage
     - name: Generate coverage report (lcov)
       run: |
         set -euo pipefail
@@ -37,7 +43,7 @@ jobs:
         ' "${COVERAGE_JSON}" > info.lcov
         test -s info.lcov
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: michaelversus/BuildrHooksCLI
