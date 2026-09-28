@@ -14,24 +14,39 @@ on:
           - major
 
 permissions:
-  contents: write  # Required for commits, tags, and releases
+  contents: write  # Required for commits, tags, releases, and sync branches
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.new }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: develop
           fetch-depth: 0  # Full history for version detection
 
       - name: Read current version and bump
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Read version from VERSION file
-          CURRENT=$(cat VERSION | tr -d '\n')
-          echo "Current version: $CURRENT"
+          # The published stable GitHub Release is authoritative; VERSION can lag behind.
+          CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          echo "Latest published release: $CURRENT"
+
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Latest release tag '$CURRENT' is not a bare semantic version."
+            exit 1
+          fi
 
           # Parse version components
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -50,6 +65,10 @@ jobs:
           esac
 
           echo "New version: $NEW_VERSION"
+          if git show-ref --verify --quiet "refs/tags/$NEW_VERSION"; then
+            echo "::error::Release tag '$NEW_VERSION' already exists. Check the latest release and repository tags."
+            exit 1
+          fi
           echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Update VERSION file
@@ -66,7 +85,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION Sources/BuildrHooksCLI/Version.swift
           git commit -m "bump up version"
-          git push
+          git push origin HEAD:develop
 
       - name: Create and push tag
         run: |
@@ -80,3 +99,47 @@ jobs:
           tag_name: ${{ steps.version.outputs.new }}
           name: ${{ steps.version.outputs.new }}
           generate_release_notes: true
+
+  sync-to-main:
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create sync branch and pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          git fetch origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/develop:refs/remotes/origin/develop
+
+          SYNC_BRANCH="sync/develop-to-main/${VERSION}"
+          if git show-ref --verify --quiet "refs/remotes/origin/${SYNC_BRANCH}"; then
+            git switch --create "$SYNC_BRANCH" "origin/$SYNC_BRANCH"
+          else
+            git switch --create "$SYNC_BRANCH" origin/main
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff origin/develop \
+            -m "Merge develop into main after release ${VERSION}"
+          git push origin "HEAD:${SYNC_BRANCH}"
+
+          TITLE="Sync develop into main after release ${VERSION}"
+          BODY="This pull request syncs the released develop branch into main."
+          if gh pr view "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null | grep -q '^OPEN$'; then
+            gh pr edit "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --body "$BODY"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base main --head "$SYNC_BRANCH" \
+              --title "$TITLE" --body "$BODY"
+          fi
