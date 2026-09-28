@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump type"
+        description: Version bump type
         required: true
-        default: "patch"
+        default: patch
         type: choice
         options:
           - patch
@@ -14,132 +14,139 @@ on:
           - major
 
 permissions:
-  contents: write  # Required for commits, tags, releases, and sync branches
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: release-${{ github.repository }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.new }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    timeout-minutes: 25
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: develop
-          fetch-depth: 0  # Full history for version detection
-
-      - name: Read current version and bump
-        id: version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # The published stable GitHub Release is authoritative; VERSION can lag behind.
-          CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
-          echo "Latest published release: $CURRENT"
-
-          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::Latest release tag '$CURRENT' is not a bare semantic version."
-            exit 1
-          fi
-
-          # Parse version components
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-
-          # Bump based on input selection
-          case "${{ inputs.bump }}" in
-            major)
-              NEW_VERSION="$((MAJOR + 1)).0.0"
-              ;;
-            minor)
-              NEW_VERSION="${MAJOR}.$((MINOR + 1)).0"
-              ;;
-            patch)
-              NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-              ;;
-          esac
-
-          echo "New version: $NEW_VERSION"
-          if git show-ref --verify --quiet "refs/tags/$NEW_VERSION"; then
-            echo "::error::Release tag '$NEW_VERSION' already exists. Check the latest release and repository tags."
-            exit 1
-          fi
-          echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Update VERSION file
-        run: |
-          echo "${{ steps.version.outputs.new }}" > VERSION
-
-      - name: Update Version.swift
-        run: |
-          echo 'let version = "${{ steps.version.outputs.new }}"' > Sources/BuildrHooksCLI/Version.swift
-
-      - name: Commit version bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION Sources/BuildrHooksCLI/Version.swift
-          git commit -m "bump up version"
-          git push origin HEAD:develop
-
-      - name: Create and push tag
-        run: |
-          NEW_VERSION="${{ steps.version.outputs.new }}"
-          git tag "$NEW_VERSION"
-          git push origin "$NEW_VERSION"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.new }}
-          name: ${{ steps.version.outputs.new }}
-          generate_release_notes: true
-
-  sync-to-main:
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
+      - name: Check out main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Create sync branch and pull request
+      - name: Prepare version commit
+        id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.release.outputs.version }}
+          BUMP: ${{ inputs.bump }}
         run: |
-          git fetch origin \
-            +refs/heads/main:refs/remotes/origin/main \
-            +refs/heads/develop:refs/remotes/origin/develop
+          set -euo pipefail
 
-          SYNC_BRANCH="sync/develop-to-main/${VERSION}"
-          if git show-ref --verify --quiet "refs/remotes/origin/${SYNC_BRANCH}"; then
-            git switch --create "$SYNC_BRANCH" "origin/$SYNC_BRANCH"
+          # A rerun finds the commit made by its original run, even if main moved.
+          RELEASE_COMMIT=$(git log origin/main --format=%H \
+            --grep="^Release-Run-ID: ${GITHUB_RUN_ID}$" -1)
+          if [[ -n "$RELEASE_COMMIT" ]]; then
+            NEW_VERSION=$(git show "$RELEASE_COMMIT:VERSION")
+            MODE=resume
           else
-            git switch --create "$SYNC_BRANCH" origin/main
+            CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+            if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::Latest published release '$CURRENT' is not a bare semantic version."
+              exit 1
+            fi
+
+            MAIN_VERSION=$(cat VERSION)
+            if [[ "$MAIN_VERSION" != "$CURRENT" ]]; then
+              echo "::error::VERSION is $MAIN_VERSION but the latest published release is $CURRENT. Rerun the incomplete release."
+              exit 1
+            fi
+
+            IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "$BUMP" in
+              major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+              patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+              *)
+                echo "::error::Unsupported version bump '$BUMP'."
+                exit 1
+                ;;
+            esac
+
+            if git rev-parse -q --verify "refs/tags/${NEW_VERSION}" >/dev/null; then
+              echo "::error::Tag $NEW_VERSION already exists. Rerun its original release workflow."
+              exit 1
+            fi
+
+            printf '%s\n' "$NEW_VERSION" > VERSION
+            printf 'let version = "%s"\n' "$NEW_VERSION" > Sources/BuildrHooksCLI/Version.swift
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add VERSION Sources/BuildrHooksCLI/Version.swift
+            git commit -m "ci(release): bump version to ${NEW_VERSION}" \
+              -m "Release-Run-ID: ${GITHUB_RUN_ID}"
+            RELEASE_COMMIT=$(git rev-parse HEAD)
+            MODE=new
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git merge --no-ff origin/develop \
-            -m "Merge develop into main after release ${VERSION}"
-          git push origin "HEAD:${SYNC_BRANCH}"
+          if [[ ! "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version '$NEW_VERSION' is invalid."
+            exit 1
+          fi
+          if [[ "$(git show "$RELEASE_COMMIT:Sources/BuildrHooksCLI/Version.swift")" != "let version = \"$NEW_VERSION\"" ]]; then
+            echo "::error::Version.swift disagrees with VERSION at $RELEASE_COMMIT."
+            exit 1
+          fi
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
-          TITLE="Sync develop into main after release ${VERSION}"
-          BODY="This pull request syncs the released develop branch into main."
-          if gh pr view "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null | grep -q '^OPEN$'; then
-            gh pr edit "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
-              --title "$TITLE" --body "$BODY"
+      - name: Check out the exact release commit
+        env:
+          RELEASE_COMMIT: ${{ steps.version.outputs.commit }}
+        run: git switch --detach "$RELEASE_COMMIT"
+
+      - name: Set up Swift 6.2.4
+        uses: SwiftyLab/setup-swift@9014d4136569075c696d4151c7810ecde8712907 # latest, pinned 2026-09-28
+        with:
+          swift-version: '6.2.4'
+
+      - name: Run release tests
+        timeout-minutes: 15
+        run: swift test
+
+      - name: Publish version commit, tag, and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_COMMIT: ${{ steps.version.outputs.commit }}
+          MODE: ${{ steps.version.outputs.mode }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$MODE" == new ]]; then
+            git push origin "${RELEASE_COMMIT}:refs/heads/main"
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${VERSION}^{commit}" >/dev/null; then
+            TAG_COMMIT=$(git rev-parse "refs/tags/${VERSION}^{commit}")
+            if [[ "$TAG_COMMIT" != "$RELEASE_COMMIT" ]]; then
+              echo "::error::Tag $VERSION points to $TAG_COMMIT, not $RELEASE_COMMIT."
+              exit 1
+            fi
           else
-            gh pr create --repo "$GITHUB_REPOSITORY" \
-              --base main --head "$SYNC_BRANCH" \
-              --title "$TITLE" --body "$BODY"
+            git tag "$VERSION" "$RELEASE_COMMIT"
+            git push origin "refs/tags/$VERSION"
+          fi
+
+          if gh release view "$VERSION" --json isDraft --jq .isDraft > release-draft.txt; then
+            if [[ "$(cat release-draft.txt)" == true ]]; then
+              gh release edit "$VERSION" --draft=false
+            else
+              echo "Release $VERSION is already published."
+            fi
+          else
+            gh release create "$VERSION" --verify-tag \
+              --title "$VERSION" --generate-notes
           fi
