@@ -150,3 +150,25 @@ jobs:
             gh release create "$VERSION" --verify-tag \
               --title "$VERSION" --generate-notes
           fi
+
+          git push origin "HEAD:${SYNC_BRANCH}"
+          TITLE="Sync develop into main after release ${VERSION}"
+          BODY="This pull request syncs the released develop branch into main. Resolve any merge conflicts on this pull request."
+          PR_STATE=$(gh pr view "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" --json state --jq '.state' 2>/dev/null || true)
+          case "$PR_STATE" in
+            OPEN)
+              gh pr edit "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+                --title "$TITLE" --body "$BODY"
+              ;;
+            CLOSED)
+              gh pr reopen "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY"
+              ;;
+            MERGED)
+              echo "Sync pull request for release ${VERSION} is already merged."
+              ;;
+            *)
+              gh pr create --repo "$GITHUB_REPOSITORY" \
+                --base main --head "$SYNC_BRANCH" \
+                --title "$TITLE" --body "$BODY"
+              ;;
+          esac

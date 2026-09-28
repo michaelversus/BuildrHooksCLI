@@ -1,0 +1,52 @@
+{
+  "hooks" : {
+    "BeforeToolCall" : [
+      {
+        "hooks" : [
+          {
+            "command" : "buildrhooks codex tool-start",
+            "timeout" : 30,
+            "type" : "command"
+          }
+        ],
+        "matcher" : null
+      }
+    ],
+    "SessionStart" : [
+      {
+        "hooks" : [
+          {
+            "command" : "buildrhooks codex session-start",
+            "timeout" : 30,
+            "type" : "command"
+          }
+        ],
+        "matcher" : null
+      }
+    ],
+    "Stop" : [
+      {
+        "hooks" : [
+          {
+            "command" : "buildrhooks codex stop",
+            "timeout" : 30,
+            "type" : "command"
+          }
+        ],
+        "matcher" : null
+      }
+    ],
+    "UserPromptSubmit" : [
+      {
+        "hooks" : [
+          {
+            "command" : "buildrhooks codex prompt-submit",
+            "timeout" : 30,
+            "type" : "command"
+          }
+        ],
+        "matcher" : null
+      }
+    ]
+  }
+}
