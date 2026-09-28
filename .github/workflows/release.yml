@@ -17,6 +17,10 @@ permissions:
   contents: write  # Required for commits, tags, releases, and sync branches
   pull-requests: write
 
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -32,10 +36,17 @@ jobs:
 
       - name: Read current version and bump
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Read version from VERSION file
-          CURRENT=$(cat VERSION | tr -d '\n')
-          echo "Current version: $CURRENT"
+          # The published stable GitHub Release is authoritative; VERSION can lag behind.
+          CURRENT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          echo "Latest published release: $CURRENT"
+
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Latest release tag '$CURRENT' is not a bare semantic version."
+            exit 1
+          fi
 
           # Parse version components
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -54,6 +65,10 @@ jobs:
           esac
 
           echo "New version: $NEW_VERSION"
+          if git show-ref --verify --quiet "refs/tags/$NEW_VERSION"; then
+            echo "::error::Release tag '$NEW_VERSION' already exists. Check the latest release and repository tags."
+            exit 1
+          fi
           echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Update VERSION file
