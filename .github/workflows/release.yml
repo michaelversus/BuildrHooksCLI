@@ -114,7 +114,7 @@ jobs:
 
       - name: Run release tests
         timeout-minutes: 15
-        run: swift test
+        run: swift test --no-parallel
 
       - name: Publish version commit, tag, and release
         env:
