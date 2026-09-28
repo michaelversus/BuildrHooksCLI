@@ -58,7 +58,7 @@ struct RawHookEventQueueTests {
         #expect(try FileManager.default.contentsOfDirectory(
             at: markerURL.deletingLastPathComponent(),
             includingPropertiesForKeys: nil
-        ).filter { $0.lastPathComponent.contains("bridge-cli-version") }.count == 1)
+        ).count(where: { $0.lastPathComponent.contains("bridge-cli-version") }) == 1)
     }
 
     @Test
