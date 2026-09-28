@@ -405,3 +405,17 @@ The package uses the Swift Testing framework and includes coverage for CLI entry
 ## Contributions
 
 Issues and pull requests are welcome. Please run `swift test` before submitting and include coverage for new behaviors when possible.
+
+# Hook version marker
+
+After a hook event is successfully queued, BuildrHooksCLI atomically writes
+`.buildrai/bridge-cli-version.json` with the CLI version that handled that hook:
+
+```json
+{ "version": "1.2.3" }
+```
+
+This records the version that most recently handled a hook in that repository.
+It does not report every `buildrhooks` executable installed on the machine. After
+a Homebrew upgrade, the marker remains at the older version until the next
+successful hook invocation in that repository.

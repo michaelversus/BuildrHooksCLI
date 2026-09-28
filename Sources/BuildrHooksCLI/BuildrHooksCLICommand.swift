@@ -32,7 +32,7 @@ struct CodexToolStartCommand: ParsableCommand {
     )
 
     func run() throws {
-        try BuildrHooksCLIEntrypoint().run(
+        try BuildrHooksCLIEntrypoint(queue: .init(bridgeCLIVersion: version)).run(
             arguments: [CommandLine.arguments.first ?? "buildrhooks", "codex", "tool-start"]
         )
     }
@@ -58,7 +58,7 @@ struct ClaudeToolStartCommand: ParsableCommand {
     )
 
     func run() throws {
-        try BuildrHooksCLIEntrypoint().run(
+        try BuildrHooksCLIEntrypoint(queue: .init(bridgeCLIVersion: version)).run(
             arguments: [CommandLine.arguments.first ?? "buildrhooks", "claude", "tool-start"]
         )
     }
@@ -72,7 +72,7 @@ private protocol HookEventExecutable: ParsableCommand {
 extension HookEventExecutable {
     func run() throws {
         do {
-            try BuildrHooksCLIEntrypoint().run(
+            try BuildrHooksCLIEntrypoint(queue: .init(bridgeCLIVersion: version)).run(
                 arguments: [
                     CommandLine.arguments.first ?? "buildrhooks",
                     Self.hookAgentKind.rawValue,
