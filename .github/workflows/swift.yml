@@ -15,16 +15,17 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
-    timeout-minutes: 20
+    runs-on: macos-26
+    timeout-minutes: 12
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-    - uses: SwiftyLab/setup-swift@9014d4136569075c696d4151c7810ecde8712907 # latest, pinned 2026-09-28
-      with:
-        swift-version: '6.2.4'
+    - name: Show Swift toolchain
+      run: swift --version
     - name: Run tests with coverage
-      timeout-minutes: 12
+      timeout-minutes: 5
       run: swift test --no-parallel --enable-code-coverage
     - name: Generate coverage report (lcov)
       run: |

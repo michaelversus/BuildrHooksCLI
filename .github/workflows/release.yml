@@ -24,8 +24,10 @@ concurrency:
 jobs:
   release:
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-14
-    timeout-minutes: 25
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     permissions:
       contents: write
 
@@ -107,13 +109,11 @@ jobs:
           RELEASE_COMMIT: ${{ steps.version.outputs.commit }}
         run: git switch --detach "$RELEASE_COMMIT"
 
-      - name: Set up Swift 6.2.4
-        uses: SwiftyLab/setup-swift@9014d4136569075c696d4151c7810ecde8712907 # latest, pinned 2026-09-28
-        with:
-          swift-version: '6.2.4'
+      - name: Show Swift toolchain
+        run: swift --version
 
       - name: Run release tests
-        timeout-minutes: 15
+        timeout-minutes: 5
         run: swift test --no-parallel
 
       - name: Publish version commit, tag, and release
