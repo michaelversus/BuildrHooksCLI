@@ -420,10 +420,11 @@ It does not report every `buildrhooks` executable installed on the machine. Afte
 a Homebrew upgrade, the marker remains at the older version until the next
 successful hook invocation in that repository.
 
-## One-shot account usage
+## Account usage
 
 ```sh
 buildrhooks usage refresh --provider codex
+buildrhooks usage watch --provider codex
 buildrhooks usage refresh --provider codex --json --codex-path /absolute/path/to/codex
 ```
 
@@ -447,9 +448,8 @@ requires the separate BuildrAI integration check.
 Minimal state and per-provider revisions are atomically retained with owner-only file
 permissions at `~/.codex/buildr-artifacts/account-usage.json`. Failure preserves a
 previous observation's time and values, but this one-shot command never publishes
-cached observations: account continuity and recovery are not delivered yet. Watch,
-service installation, clear, scheduling, and recovery are also not delivered or
-advertised by this slice. The existing hook commands and prompt-gate exits retain
+cached observations: account continuity and recovery are not delivered yet.
+Service installation and clear are not delivered yet. The existing hook commands and prompt-gate exits retain
 their behavior.
 
 JSON output contains `provider`, `outcome`, optional `retryAt`, `freshSnapshot`, and
@@ -472,8 +472,24 @@ attempted. Error diagnostics contain only fixed outcome codes, never raw Codex e
 
 Authentication failure, timeout, temporary failure, throttling, and absent usable limits
 never become zero usage or refresh the old observation. A provider retry restriction,
-when supplied, is returned as `retryAt`. Argument validation uses the CLI parser's
-standard errors. The additive capabilities fields `accountUsageRefreshProviders` and
-`accountUsageSchemaVersions` advertise only delivered refresh support and schema 1.
+when supplied, is persisted and returned as `retryAt`. Argument validation uses the CLI parser's
+standard errors. The additive capabilities fields `accountUsageRefreshProviders`, `accountUsageWatchProviders`, and
+`accountUsageSchemaVersions` advertise refresh/watch support and schema 1.
 
 The shared notification contract is documented in [account usage wire](docs/account-usage-wire.md).
+
+Foreground watch owns one persistent Codex app-server connection, reconnecting on
+bounded temporary-failure retries. It fetches at startup, after macOS wake, and every
+five minutes. Account/authentication and limit events request coalesced full reads;
+sparse event values never become observations. Starts are spaced by at least thirty
+seconds per provider, with a thirty-second total fetch timeout. Temporary failures
+retry exponentially from thirty seconds to five minutes with up to 20% jitter,
+capped at five minutes. Longer provider restrictions take precedence and survive
+restart, including for one-shot refresh. Authentication failures wait for an account
+or login event or the next scheduled poll. Wake also requests a scheduled check.
+Interrupting watch with Control-C or SIGTERM closes its owned connection and cancels
+pending work; incomplete results are not published. Exit code 18 denotes cancellation
+of a refresh. A watch does not imply that the BuildrAI receiver is running.
+Values are stale once at least fifteen minutes old, using their original collection
+time; failures never change that time. Independent provider state is reserved for
+future implementations; selecting Claude currently returns a validation error.

@@ -8,6 +8,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let toolStartEvents: [HookAgentKind]
 
     public let accountUsageRefreshProviders: [UsageProvider]
+    public let accountUsageWatchProviders: [UsageProvider]
     public let accountUsageSchemaVersions: [Int]
 
     public static let current = BuildrHooksCapabilities(
@@ -17,6 +18,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
         claudeDesktopTranscriptSurfaceResolver: true,
         toolStartEvents: [.codex, .claude],
         accountUsageRefreshProviders: [.codex],
+        accountUsageWatchProviders: [.codex],
         accountUsageSchemaVersions: [1]
     )
 }

@@ -31,6 +31,52 @@ struct CodexUsageFetcherTests {
         #expect(try CodexUsageParser().windows(from: data).first?.usedPercent == 12)
     }
 
+    @Test func persistentConnectionReadsIdleAndInFlightEventsAndReconnects() throws {
+        let file = try executable("""
+        read -r initialize
+        echo '{"id":1,"result":{}}'
+        read -r initialized
+        read -r account
+        echo '{"id":2,"result":{"account":{"type":"chatgpt"}}}'
+        read -r limits
+        echo '{"method":"account/rateLimits/updated","params":{"usedPercent":99}}'
+        echo '{"id":3,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}'
+        echo '{"method":"account/updated","params":{"secret":"never published"}}'
+        read -r account
+        echo '{"id":4,"result":{"account":{"type":"chatgpt"}}}'
+        read -r limits
+        echo '{"id":5,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}'
+        """)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let fetcher = CodexUsageFetcher(executablePath: file.path)
+        fetcher.beginWatch()
+        defer { fetcher.close() }
+        let first = try fetcher.fetch(timeout: 2)
+        #expect(try CodexUsageParser().windows(from: first).first?.usedPercent == 12)
+        let events = try fetcher.events()
+        #expect(events.contains(.limitsChanged))
+        let second = try fetcher.fetch(timeout: 2)
+        #expect(first == second)
+        // The fixture ends its connection. A failed full read discards it, allowing reconnect.
+        #expect(throws: (any Error).self) { try fetcher.fetch(timeout: 2) }
+        let reconnected = try fetcher.fetch(timeout: 2)
+        #expect(first == reconnected)
+    }
+
+    @Test func cancellationInterruptsOwnedHungFetch() throws {
+        let file = try executable("read -r initialize\nexec /bin/sleep 10\n")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let start = ProcessInfo.processInfo.systemUptime
+        let fetcher = CodexUsageFetcher(executablePath: file.path)
+        do {
+            _ = try fetcher.fetch(timeout: 30, isCancelled: {
+                ProcessInfo.processInfo.systemUptime - start >= 0.05
+            })
+            Issue.record("Expected cancellation")
+        } catch UsageFetchError.cancelled {} catch { Issue.record("Unexpected sanitized failure") }
+        #expect(ProcessInfo.processInfo.systemUptime - start < 1)
+    }
+
     @Test func providerAuthenticationAndThrottlingErrorsAreSanitized() throws {
         for code in [401, 429] {
             let file = try executable("""

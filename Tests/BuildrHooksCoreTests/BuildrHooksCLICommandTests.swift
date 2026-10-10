@@ -52,6 +52,16 @@ struct BuildrHooksCLICommandTests {
     }
 
     @Test
+    func usageWatchRequiresSupportedExplicitSelection() throws {
+        #expect(throws: (any Error).self) { try UsageWatchCommand.parse([]).validate() }
+        #expect(throws: (any Error).self) { try UsageWatchCommand.parse(["--provider", "claude"]).validate() }
+        let command = try UsageWatchCommand.parse(["--provider", "codex", "--provider", "codex", "--json"])
+        try command.validate()
+        #expect(command.provider == ["codex", "codex"])
+        #expect(command.json)
+    }
+
+    @Test
     func capabilitiesCommandEmitsTextAndSortedJSON() throws {
         let textCommand = try CapabilitiesCommand.parse([])
         try textCommand.run()

@@ -4,6 +4,9 @@ import Foundation
 public struct UsageProviderState: Codable, Sendable {
     public var revision: UInt64 = 0
     public var latestInvalidationRevision: UInt64 = 0
+    public var lastFetchStartedAt: Int64?
+    public var retryNotBefore: Int64?
+    public var temporaryFailureCount: Int?
     public var snapshot: UsageSnapshot?
     public var status: UsageCollectionStatus?
     public init() {}

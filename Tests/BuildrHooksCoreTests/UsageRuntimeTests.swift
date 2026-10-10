@@ -146,15 +146,17 @@ struct UsageRuntimeTests {
         let failures: [FailureCase] = [
             .init(.authenticationRequired, .authenticationRequired, .authenticationRequired),
             .init(.temporaryFailure, .temporaryFailure, .temporaryFailure),
-            .init(.throttled(retryAt: 9_000_000_000), .throttled, .throttled),
             .init(.timeout, .timeout, .temporaryFailure),
             .init(.unavailable, .usageUnavailable, .usageUnavailable),
-            .init(.executableUnavailable, .executableUnavailable, .temporaryFailure)
+            .init(.executableUnavailable, .executableUnavailable, .temporaryFailure),
+            .init(.throttled(retryAt: 9_000_000_000), .throttled, .throttled)
         ]
         var exits = Set<Int32>()
-        for failure in failures {
+        for (index, failure) in failures.enumerated() {
             let runtime = UsageRuntime(fetcher: FakeUsageFetcher(error: failure.error), store: store,
-                                       notifier: notifier, now: { date.addingTimeInterval(300) }, output: { _ in })
+                                       notifier: notifier,
+                                       now: { date.addingTimeInterval(Double(index + 1) * 300) },
+                                       output: { _ in })
             let result = runtime.refresh(json: true)
             #expect(result.outcome == failure.outcome)
             #expect(!result.freshSnapshot)
@@ -246,14 +248,16 @@ struct UsageRuntimeTests {
         let store = try temporaryStore()
         defer { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
         let notifier = RecordingUsageNotifier(recorder: UsageRecorder())
-        for (json, expected) in [
+        for (index, sample) in [
             ("{\"rateLimits\":{}}", UsageOutcome.usageUnavailable),
             ("{\"rateLimits\":{\"primary\":{}}}", .temporaryFailure),
             ("{\"rateLimits\":{\"primary\":{\"usedPercent\":-1}}}", .temporaryFailure),
             ("{\"rateLimits\":{\"primary\":{\"usedPercent\":2,\"windowDurationMins\":0}}}", .temporaryFailure)
-        ] {
+        ].enumerated() {
+            let (json, expected) = sample
             let runtime = UsageRuntime(fetcher: FakeUsageFetcher(response: Data(json.utf8)), store: store,
-                                       notifier: notifier, now: { date }, output: { _ in })
+                                       notifier: notifier, now: { date.addingTimeInterval(Double(index) * 300) },
+                                       output: { _ in })
             #expect(runtime.refresh().outcome == expected)
             #expect(try store.load().providers["codex"]?.snapshot == nil)
         }

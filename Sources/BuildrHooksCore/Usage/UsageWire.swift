@@ -1,6 +1,6 @@
 import Foundation
 
-public enum UsageProvider: String, Codable, Sendable { case codex }
+public enum UsageProvider: String, Codable, Sendable { case codex, claude }
 public enum UsageStatusCode: String, Codable, Sendable {
     case pending, ready
     case authenticationRequired = "authentication_required"

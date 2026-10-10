@@ -1,16 +1,53 @@
 import Darwin
 import Foundation
 
-public struct CodexUsageFetcher: UsageFetching {
+public final class CodexUsageFetcher: UsageFetching, @unchecked Sendable {
+    private var session: CodexUsageSession?
+    private var watching = false
     public let executablePath: String?
     public init(executablePath: String? = nil) {
         self.executablePath = executablePath
     }
 
+    public func beginWatch() {
+        watching = true
+    }
+
+    public func close() {
+        session?.shutdown(); session = nil
+    }
+
+    public func events() throws -> [UsageWatchTrigger] {
+        try session?.events() ?? []
+    }
+
     public func fetch(timeout: TimeInterval) throws -> Data {
-        let executable = try resolveExecutable()
-        let session = CodexUsageSession(executable: executable, timeout: min(30, max(0, timeout)))
-        return try session.fetch()
+        try fetch(timeout: timeout, isCancelled: { false })
+    }
+
+    public func fetch(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> Data {
+        if session == nil {
+            session = try CodexUsageSession(executable: resolveExecutable())
+        }
+        defer {
+            if !watching {
+                close()
+            }
+        }
+        do {
+            guard let session else { throw UsageFetchError.temporaryFailure }
+            return try session.fetch(timeout: min(30, max(0, timeout)), isCancelled: isCancelled)
+        } catch {
+            if let failure = error as? UsageFetchError {
+                switch failure {
+                case .authenticationRequired, .unavailable, .throttled: break
+                default: close()
+                }
+            } else {
+                close()
+            }
+            throw error
+        }
     }
 
     private func resolveExecutable() throws -> URL {
@@ -37,11 +74,14 @@ private final class CodexUsageSession {
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
-    private let deadline: TimeInterval
+    private var deadline: TimeInterval = 0
+    private var isCancelled: @Sendable () -> Bool = { false }
+    private var initialized = false
+    private var requestID = 0
+    private var pendingEvents: [UsageWatchTrigger] = []
     private var buffer = Data()
     private var receivedBytes = 0
-    init(executable: URL, timeout: TimeInterval) {
-        deadline = ProcessInfo.processInfo.systemUptime + timeout
+    init(executable: URL) {
         process.executableURL = executable
         process.arguments = ["app-server", "--listen", "stdio://"]
         process.standardInput = input
@@ -50,38 +90,49 @@ private final class CodexUsageSession {
         process.standardError = FileHandle.nullDevice
     }
 
-    func fetch() throws -> Data {
-        do { try process.run() } catch { throw UsageFetchError.executableUnavailable }
-        defer { shutdown() }
-        _ = try request(id: 1, method: "initialize", params: [
-            "clientInfo": ["name": "buildrhooks", "title": "BuildrHooksCLI", "version": "1"]
-        ])
-        try send(["method": "initialized"])
-        let account = try request(id: 2, method: "account/read", params: ["refreshToken": false])
+    func fetch(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> Data {
+        self.isCancelled = isCancelled
+        deadline = ProcessInfo.processInfo.systemUptime + timeout
+        receivedBytes = 0
+        if !initialized {
+            do { try process.run() } catch { throw UsageFetchError.executableUnavailable }
+            _ = try request(method: "initialize", params: [
+                "clientInfo": ["name": "buildrhooks", "title": "BuildrHooksCLI", "version": "1"]
+            ])
+            try send(["method": "initialized"])
+            initialized = true
+        }
+        let account = try request(method: "account/read", params: ["refreshToken": false])
         // Null identity is supported. No login or credential-file extraction is attempted.
         if (account["requiresOpenaiAuth"] as? Bool) == true,
            account["account"] == nil || account["account"] is NSNull {
             throw UsageFetchError.authenticationRequired
         }
-        let limits = try request(id: 3, method: "account/rateLimits/read", params: NSNull())
+        let limits = try request(method: "account/rateLimits/read", params: NSNull())
         return try JSONSerialization.data(withJSONObject: limits)
     }
 
     private func send(_ message: [String: Any]) throws {
+        guard !isCancelled() else { throw UsageFetchError.cancelled }
         guard ProcessInfo.processInfo.systemUptime < deadline else { throw UsageFetchError.timeout }
         var data = try JSONSerialization.data(withJSONObject: message)
         data.append(10)
         do { try input.fileHandleForWriting.write(contentsOf: data) } catch { throw UsageFetchError.temporaryFailure }
     }
 
-    private func request(id: Int, method: String, params: Any) throws -> [String: Any] {
+    private func request(method: String, params: Any) throws -> [String: Any] {
+        requestID += 1
+        let id = requestID
         try send(["id": id, "method": method, "params": params])
         while true {
             let line = try readLine()
             guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
                 throw UsageFetchError.temporaryFailure
             }
-            guard (message["id"] as? Int) == id else { continue }
+            guard (message["id"] as? Int) == id else {
+                recordEvent(message)
+                continue
+            }
             if let error = message["error"] as? [String: Any] {
                 throw classify(error)
             }
@@ -90,6 +141,53 @@ private final class CodexUsageSession {
             }
             return result
         }
+    }
+
+    private func recordEvent(_ message: [String: Any]) {
+        switch message["method"] as? String {
+        case "account/updated", "account/login/completed":
+            if !pendingEvents.contains(.authenticationChanged) {
+                pendingEvents.append(.authenticationChanged)
+            }
+        case "account/rateLimits/updated":
+            if !pendingEvents.contains(.limitsChanged) {
+                pendingEvents.append(.limitsChanged)
+            }
+        default: break
+        }
+    }
+
+    func events() throws -> [UsageWatchTrigger] {
+        guard initialized else { return [] }
+        receivedBytes = 0
+        while true {
+            if let newline = buffer.firstIndex(of: 10) {
+                let line = Data(buffer[..<newline])
+                buffer.removeSubrange(...newline)
+                guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                    throw UsageFetchError.temporaryFailure
+                }
+                recordEvent(message)
+                continue
+            }
+            guard buffer.count <= 1024 * 1024, receivedBytes <= 4 * 1024 * 1024 else {
+                throw UsageFetchError.temporaryFailure
+            }
+            var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, 0)
+            if ready == 0 {
+                break
+            }
+            guard ready > 0 else { throw UsageFetchError.temporaryFailure }
+            var bytes = [UInt8](repeating: 0, count: 8192)
+            let count = Darwin.read(descriptor.fd, &bytes, bytes.count)
+            guard count > 0 else { throw UsageFetchError.temporaryFailure }
+            receivedBytes += count
+            buffer.append(contentsOf: bytes.prefix(count))
+        }
+        let events = pendingEvents
+        pendingEvents.removeAll()
+        return events
     }
 
     private func classify(_ error: [String: Any]) -> UsageFetchError {
@@ -122,6 +220,7 @@ private final class CodexUsageSession {
 
     private func readLine() throws -> Data {
         while true {
+            guard !isCancelled() else { throw UsageFetchError.cancelled }
             guard ProcessInfo.processInfo.systemUptime < deadline else { throw UsageFetchError.timeout }
             if let newline = buffer.firstIndex(of: 10) {
                 let line = Data(buffer[..<newline])
@@ -151,7 +250,7 @@ private final class CodexUsageSession {
         }
     }
 
-    private func shutdown() {
+    func shutdown() {
         try? input.fileHandleForWriting.close()
         if process.isRunning {
             process.terminate()
