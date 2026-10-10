@@ -454,7 +454,7 @@ revisions. Private salted fingerprints establish account continuity when suffici
 identity exists; otherwise retained usage is withheld until a fresh usable fetch.
 Account changes durably invalidate previous-account snapshots, even with unavailable
 new limits.
-Service installation is not delivered yet. The existing hook commands and prompt-gate exits retain
+The existing hook commands and prompt-gate exits retain
 their behavior.
 
 JSON output contains `provider`, `outcome`, optional `retryAt`, `localCleared`, `freshSnapshot`, and
@@ -522,7 +522,7 @@ requests arriving during collection receive the next actual result, usually a
 
 Refresh waits at most forty seconds, including coordination and the thirty-second
 fetch deadline, and responds to interruption. The private channel accepts
-version 1 refresh and clear requests for Codex, bounds frames to 4 KiB, caps queued clients,
+version 1 refresh, clear, and status-ping requests for Codex, bounds frames to 4 KiB, caps queued clients,
 and drops incomplete requests after two seconds once accepted. Disconnected clients
 do not stop the shared collector. Endpoint recovery requires holding the lock;
 commands never remove a live collector's endpoint or lock file. Distributed recovery
@@ -539,7 +539,7 @@ a pre-clear fetch cannot recommit its discarded observation. Other providers' st
 is untouched. No Codex limits fetch or authentication is needed to clear locally.
 
 Clear is distinct from disabling collection: it does not reset account limits or
-stop polling. A later fresh usable fetch can populate usage again. The planned disable command will stop
+stop polling. A later fresh usable fetch can populate usage again. The service disable command stops
 collection and automatic startup while preserving recovery metadata. Replayed
 observations keep their original collection times; publication never refreshes age.
 
@@ -558,3 +558,55 @@ and collector stopped: verify no app launch, then restart both, request recovery
 and deliver the saved pre-clear snapshot late; verify it cannot restore values.
 Confirm a later fresh fetch repopulates values with its actual collection time.
 These are separate integration checks, not performed by the simulated tests.
+
+### Opt-in usage login service
+
+Installing `buildrhooks` does not enable background collection. To explicitly consent
+for the selected provider, run:
+
+```sh
+buildrhooks usage service enable --provider codex
+buildrhooks usage service status --json
+buildrhooks usage service disable --json
+```
+
+`--provider codex` is required and repeatable. Duplicate selections collect once;
+future providers will require explicit selection. Enable validates the installed CLI
+and Codex executables before changing configuration. Codex must be installed and
+signed in separately; it is never installed or signed in automatically. For a custom
+installation or a changed executable location, use absolute overrides:
+
+```sh
+buildrhooks usage service enable --provider codex \
+  --cli-path /absolute/stable/buildrhooks --codex-path /absolute/stable/codex --json
+```
+
+The user LaunchAgent `~/Library/LaunchAgents/ai.buildrai.account-usage.plist` directly
+executes `buildrhooks usage watch` without a shell, immediately on enable and at future
+logins. It uses the collector's persistent Codex app-server connection. Prefer stable
+installation paths, including stable package-manager symlinks. Re-enabling retains
+configured executable paths across upgrades unless an explicit override replaces them;
+it validates paths again before restarting. Missing executables produce an actionable
+redacted stderr diagnostic and a machine-readable error with `--json`. Inspect
+`executablesValid` in service status, repair the installation or pass overrides, and
+re-enable. Re-enabling updates configuration without creating another collector.
+Stop a foreground `usage watch` first; the same user-global lock prevents duplicate
+ownership, and service commands never terminate an unrelated foreground collector.
+
+Status separates `configured` (saved LaunchAgent), `installed` (loaded in launchd),
+`processRunning` (launchd reports a running service), and `collectorAvailable` (the
+private control endpoint answered a bounded ping). A running process may be temporarily
+unavailable while a fetch is in progress. `retainedCollectionStatus` contains historical,
+committed status with its original observation time; even retained `ready` does not
+prove the process is running or data is fresh. Status pings never trigger a usage fetch.
+JSON stdout contains no executable paths, fingerprints, or account details. Diagnostics
+go to stderr.
+
+Disable requests cancellation through launchd and removes automatic startup while
+retaining committed observations and durable invalidation/recovery metadata. A pending
+shutdown is reported explicitly after a bounded wait. Service lifetime is independent
+of BuildrAI: opening, closing, or quitting BuildrAI does not manage it. BuildrAI quitting
+ends the app's receiver, while the independently enabled collector continues. The
+service never writes BuildrAI's App Group. Use `usage clear --provider codex` separately
+to discard retained usage. Capability `accountUsageServiceProviders` advertises the
+supported opt-in service providers.

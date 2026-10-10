@@ -7,7 +7,9 @@ import Foundation
 struct UsageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "usage", abstract: "Collect account usage independently of repository hooks.",
-        subcommands: [UsageRefreshCommand.self, UsageWatchCommand.self, UsageClearCommand.self]
+        subcommands: [
+            UsageRefreshCommand.self, UsageWatchCommand.self, UsageClearCommand.self, UsageServiceCommand.self
+        ]
     )
 }
 

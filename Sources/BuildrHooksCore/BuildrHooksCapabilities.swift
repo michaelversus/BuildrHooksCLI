@@ -10,6 +10,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let accountUsageRefreshProviders: [UsageProvider]
     public let accountUsageClearProviders: [UsageProvider]
     public let accountUsageWatchProviders: [UsageProvider]
+    public let accountUsageServiceProviders: [UsageProvider]
     public let accountUsageSchemaVersions: [Int]
 
     public static let current = BuildrHooksCapabilities(
@@ -21,6 +22,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
         accountUsageRefreshProviders: [.codex],
         accountUsageClearProviders: [.codex],
         accountUsageWatchProviders: [.codex],
+        accountUsageServiceProviders: [.codex],
         accountUsageSchemaVersions: [1]
     )
 }

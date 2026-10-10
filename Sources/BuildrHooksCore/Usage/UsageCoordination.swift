@@ -17,8 +17,8 @@ public final class UsageCoordination: @unchecked Sendable {
         var data = Data()
     }
 
-    public init(cacheURL: URL = UsageFileStateStore().fileURL) {
-        lockURL = cacheURL.deletingLastPathComponent().appendingPathComponent("account-usage.lock")
+    public init(cacheURL: URL = UsageFileStateStore().fileURL, lockName: String = "account-usage.lock") {
+        lockURL = cacheURL.deletingLastPathComponent().appendingPathComponent(lockName)
         socketURL = cacheURL.deletingLastPathComponent().appendingPathComponent("account-usage.sock")
     }
 
@@ -169,6 +169,12 @@ public final class UsageCoordination: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.02)
         }
         return runtime.result(.codex, cancelled() ? .cancelled : .timeout)
+    }
+
+    /// Probe the private owner without collecting or mutating retained state.
+    public func available(timeout: TimeInterval = 0.3) -> Bool {
+        (try? delegate(deadline: Self.time + timeout, cancelled: { false },
+                       request: UsagePrivateRequest(operation: .ping)))?.outcome == .collectorRunning
     }
 
     public func clear(
@@ -366,31 +372,5 @@ extension UsageCoordination {
             }
         }
         return offset == frame.count
-    }
-}
-
-public enum UsageCoordinationError: Error { case unavailable }
-
-public struct UsagePrivateRequest: Codable, Sendable {
-    public enum Operation: String, Codable, Sendable { case refresh, clear }
-    public var version = 1
-    public var operation: Operation = .refresh
-    public var provider: UsageProvider = .codex
-    public init(operation: Operation = .refresh, provider: UsageProvider = .codex) {
-        self.operation = operation
-        self.provider = provider
-    }
-}
-
-public extension UsageRuntime {
-    /// Private commands execute synchronously under the collector ownership lock.
-    func dispatch(_ request: UsagePrivateRequest) -> UsageRefreshResult {
-        guard request.version == 1, request.provider == .codex else {
-            return result(request.provider, .unsupportedProvider)
-        }
-        switch request.operation {
-        case .refresh: return collect(provider: request.provider)
-        case .clear: return clear(provider: request.provider)
-        }
     }
 }
