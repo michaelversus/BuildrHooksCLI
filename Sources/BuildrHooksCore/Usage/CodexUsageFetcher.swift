@@ -21,6 +21,23 @@ public final class CodexUsageFetcher: UsageFetching, @unchecked Sendable {
         try session?.events() ?? []
     }
 
+    public func currentAccountIdentity(timeout: TimeInterval) throws -> String? {
+        if session == nil {
+            session = try CodexUsageSession(executable: resolveExecutable())
+        }
+        defer {
+            if !watching {
+                close()
+            }
+        }
+        do {
+            return try session?.currentAccountIdentity(timeout: timeout)
+        } catch {
+            close()
+            throw error
+        }
+    }
+
     public func fetch(timeout: TimeInterval) throws -> Data {
         try fetch(timeout: timeout, isCancelled: { false })
     }
@@ -94,6 +111,18 @@ private final class CodexUsageSession {
         self.isCancelled = isCancelled
         deadline = ProcessInfo.processInfo.systemUptime + timeout
         receivedBytes = 0
+        try initialize()
+        let account = try readAccount()
+        // Null identity is supported. No login or credential-file extraction is attempted.
+        if (account["requiresOpenaiAuth"] as? Bool) == true,
+           account["account"] == nil || account["account"] is NSNull {
+            throw UsageFetchError.authenticationRequired
+        }
+        let limits = try request(method: "account/rateLimits/read", params: NSNull())
+        return try JSONSerialization.data(withJSONObject: limits)
+    }
+
+    private func initialize() throws {
         if !initialized {
             do { try process.run() } catch { throw UsageFetchError.executableUnavailable }
             _ = try request(method: "initialize", params: [
@@ -102,14 +131,22 @@ private final class CodexUsageSession {
             try send(["method": "initialized"])
             initialized = true
         }
-        let account = try request(method: "account/read", params: ["refreshToken": false])
-        // Null identity is supported. No login or credential-file extraction is attempted.
-        if (account["requiresOpenaiAuth"] as? Bool) == true,
-           account["account"] == nil || account["account"] is NSNull {
-            throw UsageFetchError.authenticationRequired
-        }
-        let limits = try request(method: "account/rateLimits/read", params: NSNull())
-        return try JSONSerialization.data(withJSONObject: limits)
+    }
+
+    private func readAccount() throws -> [String: Any] {
+        try request(method: "account/read", params: ["refreshToken": false])
+    }
+
+    func currentAccountIdentity(timeout: TimeInterval) throws -> String? {
+        deadline = ProcessInfo.processInfo.systemUptime + min(5, max(0, timeout))
+        isCancelled = { false }
+        receivedBytes = 0
+        try initialize()
+        let response = try readAccount()
+        // Optional routing identity only. Email, plan, and authentication mode are not continuity proof.
+        guard let routing = response["workspaceRouting"] as? [String: Any],
+              let identity = routing["chatgptAccountId"] as? String, !identity.isEmpty else { return nil }
+        return identity
     }
 
     private func send(_ message: [String: Any]) throws {

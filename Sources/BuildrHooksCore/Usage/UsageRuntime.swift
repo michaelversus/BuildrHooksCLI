@@ -10,6 +10,7 @@ public protocol UsageFetching: Sendable {
     /// Implementations must honor this total fetch deadline, including initialization and authentication reads.
     func fetch(timeout: TimeInterval) throws -> Data
     func fetch(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> Data
+    func currentAccountIdentity(timeout: TimeInterval) throws -> String?
     func beginWatch()
     func events() throws -> [UsageWatchTrigger]
     func close()
@@ -18,6 +19,10 @@ public protocol UsageFetching: Sendable {
 public extension UsageFetching {
     func fetch(timeout: TimeInterval, isCancelled _: @escaping @Sendable () -> Bool) throws -> Data {
         try fetch(timeout: timeout)
+    }
+
+    func currentAccountIdentity(timeout _: TimeInterval) throws -> String? {
+        nil
     }
 
     func beginWatch() {}
@@ -29,7 +34,7 @@ public extension UsageFetching {
 }
 
 public enum UsageWatchTrigger: Sendable, Equatable {
-    case limitsChanged, authenticationChanged, wake, refresh
+    case limitsChanged, authenticationChanged, wake, refresh, recoveryRequested
 }
 
 public protocol UsageNotifying: Sendable {
@@ -81,21 +86,10 @@ public struct UsageRefreshResult: Codable, Sendable {
     public let publicationAttempted: Bool
 }
 
-private struct UsageFetchResult {
-    let outcome: UsageOutcome
-    let retryAt: Int64?
-    let snapshot: UsageSnapshot?
-}
-
-private struct UsageCompletion {
-    let provider: UsageProvider
-    let fetched: UsageFetchResult
-    let outcome: UsageOutcome
-    let retryAt: Int64?
-}
-
-/// Primary command-to-provider-to-publication seam. It never delivers retained observations.
+/// Primary command, collection, and verified recovery seam.
 public struct UsageRuntime: Sendable {
+    public static let requestNotification = "ai.buildrai.account-usage-requested"
+    let recovery = UsageRecoverySession()
     public static let snapshotNotification = "ai.buildrai.account-usage-updated"
     public static let statusNotification = "ai.buildrai.account-usage-status-updated"
     public var fetcher: any UsageFetching
@@ -151,12 +145,16 @@ public struct UsageRuntime: Sendable {
         let fetchers = selected.map { additionalFetchers[$0] ?? fetcher }
         fetchers.forEach { $0.beginWatch() }
         defer { fetchers.forEach { $0.close() } }
+        prepareRecovery(providers: selected)
         var pending = Set(selected)
         var nextPoll = Dictionary(uniqueKeysWithValues: selected.map { ($0, milliseconds()) })
         while !isCancelled() {
             let external = triggers()
             for provider in selected {
                 processWatchProvider(provider, external: external, json: json, pending: &pending, nextPoll: &nextPoll)
+            }
+            if external.contains(.recoveryRequested) {
+                recover(providers: selected)
             }
             if !isCancelled() {
                 wait(0.1)
@@ -175,10 +173,15 @@ public struct UsageRuntime: Sendable {
         } catch {
             // A disconnected adapter reconnects on the next bounded full read.
             adapter.close()
+            recovery.unverify(provider)
             pending.insert(provider)
             events = []
         }
-        let all = external + events
+        let all = external.filter { $0 != .recoveryRequested } + events
+        if all.contains(.authenticationChanged) {
+            recovery.unverify(provider)
+            prepareRecovery(providers: [provider])
+        }
         if all.contains(where: {
             if case .authenticationChanged = $0 {
                 true
@@ -198,8 +201,10 @@ public struct UsageRuntime: Sendable {
         }
         guard pending.contains(provider), !isCancelled() else { return }
         let state = try? store.load().providers[provider.rawValue]
-        let allowed = max((state?.lastFetchStartedAt ?? (milliseconds() - 30000)) + 30000,
-                          state?.retryNotBefore ?? 0)
+        let allowed = max(
+            (state?.lastFetchStartedAt ?? (milliseconds() - 30000)) + 30000,
+            state?.retryNotBefore ?? 0
+        )
         guard milliseconds() >= allowed else { return }
         pending.remove(provider)
         let outcome = refresh(provider: provider, json: json)
@@ -248,47 +253,46 @@ public struct UsageRuntime: Sendable {
     }
 
     private func fetch(provider: UsageProvider, revision: UInt64) -> UsageFetchResult {
+        var identity: String?
         do {
             let selected = additionalFetchers[provider] ?? fetcher
-            let windows = try parse(selected.fetch(timeout: 30, isCancelled: isCancelled))
-            guard !windows.isEmpty else { throw UsageFetchError.unavailable }
+            let data = try selected.fetch(timeout: 30, isCancelled: isCancelled)
+            identity = UsageAccountIdentity.fullObservation(data)
+            let windows = try parse(data)
+            guard !windows.isEmpty else {
+                return UsageFetchResult(outcome: .usageUnavailable, retryAt: nil, snapshot: nil, identity: identity)
+            }
             let snapshot = UsageSnapshot(provider: provider, revision: revision,
                                          collectedAt: milliseconds(), windows: windows)
             _ = try UsageWire().encode(snapshot, now: now())
-            return UsageFetchResult(outcome: .refreshed, retryAt: nil, snapshot: snapshot)
+            return UsageFetchResult(outcome: .refreshed, retryAt: nil, snapshot: snapshot, identity: identity)
         } catch let error as UsageFetchError {
             switch error {
             case .authenticationRequired:
-                return UsageFetchResult(outcome: .authenticationRequired, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(
+                    outcome: .authenticationRequired, retryAt: nil, snapshot: nil, identity: identity
+                )
             case .temporaryFailure:
-                return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil, identity: identity)
             case .timeout:
-                return UsageFetchResult(outcome: .timeout, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(outcome: .timeout, retryAt: nil, snapshot: nil, identity: identity)
             case .unavailable:
-                return UsageFetchResult(outcome: .usageUnavailable, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(outcome: .usageUnavailable, retryAt: nil, snapshot: nil, identity: identity)
             case let .throttled(retryAt):
-                return UsageFetchResult(outcome: .throttled, retryAt: retryAt, snapshot: nil)
+                return UsageFetchResult(outcome: .throttled, retryAt: retryAt, snapshot: nil, identity: identity)
             case .cancelled:
-                return UsageFetchResult(outcome: .cancelled, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(outcome: .cancelled, retryAt: nil, snapshot: nil, identity: identity)
             case .executableUnavailable:
-                return UsageFetchResult(outcome: .executableUnavailable, retryAt: nil, snapshot: nil)
+                return UsageFetchResult(
+                    outcome: .executableUnavailable, retryAt: nil, snapshot: nil, identity: identity
+                )
             }
         } catch {
-            return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil)
+            return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil, identity: identity)
         }
     }
 
-    private func statusCode(for outcome: UsageOutcome) -> UsageStatusCode {
-        switch outcome {
-        case .refreshed: .ready
-        case .authenticationRequired: .authenticationRequired
-        case .throttled: .throttled
-        case .usageUnavailable: .usageUnavailable
-        default: .temporaryFailure
-        }
-    }
-
-    private func publish(snapshot: UsageSnapshot?, status: UsageCollectionStatus?) throws -> Bool {
+    func publish(snapshot: UsageSnapshot?, status: UsageCollectionStatus?) throws -> Bool {
         var attempted = false
         let wire = UsageWire()
         do {
@@ -308,11 +312,11 @@ public struct UsageRuntime: Sendable {
         return attempted
     }
 
-    private func milliseconds() -> Int64 {
+    func milliseconds() -> Int64 {
         Int64(now().timeIntervalSince1970 * 1000)
     }
 
-    private func status(
+    func status(
         _ code: UsageStatusCode, provider: UsageProvider, state: UsageProviderState, retryAt: Int64? = nil
     ) -> UsageCollectionStatus {
         UsageCollectionStatus(
@@ -321,61 +325,11 @@ public struct UsageRuntime: Sendable {
         )
     }
 
-    private func result(
+    func result(
         _ provider: UsageProvider, _ outcome: UsageOutcome, retryAt: Int64? = nil,
         fresh: Bool = false, attempted: Bool = false
     ) -> UsageRefreshResult {
         UsageRefreshResult(provider: provider, outcome: outcome, retryAt: retryAt,
                            freshSnapshot: fresh, publicationAttempted: attempted)
-    }
-}
-
-private struct UsagePublicationError: Error {
-    let attempted: Bool
-}
-
-private extension UsageRuntime {
-    func finish(
-        _ completion: UsageCompletion, state: inout UsageProviderState, durable: inout UsageDurableState
-    ) -> UsageRefreshResult {
-        let provider = completion.provider
-        let fetched = completion.fetched
-        let outcome = completion.outcome
-        let retryAt = completion.retryAt
-        state.retryNotBefore = retryAt
-        let fresh = fetched.snapshot
-        if let fresh {
-            state.snapshot = fresh
-            state.revision += 1
-        }
-        state.revision += 1
-        let code = statusCode(for: outcome)
-        state.status = status(code, provider: provider, state: state, retryAt: retryAt)
-        durable.providers[provider.rawValue] = state
-        do { try store.save(durable) } catch { return result(provider, .persistenceFailure, fresh: fresh != nil) }
-        do {
-            let attempted = try publish(snapshot: fresh, status: state.status)
-            return result(provider, outcome, retryAt: retryAt, fresh: fresh != nil, attempted: attempted)
-        } catch let attempted as UsagePublicationError {
-            return result(provider, .publicationFailure, fresh: fresh != nil, attempted: attempted.attempted)
-        } catch { return result(provider, .publicationFailure, fresh: fresh != nil) }
-    }
-
-    func retryAt(
-        for outcome: UsageOutcome, fetchedRetryAt: Int64?, state: inout UsageProviderState
-    ) -> Int64? {
-        if outcome == .temporaryFailure || outcome == .timeout || outcome == .executableUnavailable {
-            let failures = min(20, (state.temporaryFailureCount ?? 0) + 1)
-            state.temporaryFailureCount = failures
-            let base = min(300.0, 30 * pow(2, Double(failures - 1)))
-            let random = jitter()
-            let fraction = random.isFinite ? min(1, max(0, random)) : 0
-            return milliseconds() + Int64(min(300, base * (1 + fraction * 0.2)) * 1000)
-        }
-        if outcome == .throttled {
-            return max(fetchedRetryAt ?? 0, milliseconds() + 30000)
-        }
-        state.temporaryFailureCount = 0
-        return fetchedRetryAt
     }
 }

@@ -68,6 +68,8 @@ private final class UsageWatchLifecycle: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
     private var woke = false
+    private var recoveryRequested = false
+    private var recoveryObserver: NSObjectProtocol?
     private var signals: [DispatchSourceSignal] = []
     private var wakeObserver: NSObjectProtocol?
     var cancelled: Bool {
@@ -85,6 +87,12 @@ private final class UsageWatchLifecycle: @unchecked Sendable {
             source.resume()
             signals.append(source)
         }
+        recoveryObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name(UsageRuntime.requestNotification), object: nil, queue: nil
+        ) { [weak self] notification in
+            guard notification.userInfo == nil, let self else { return }
+            lock.withLock { self.recoveryRequested = true }
+        }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: nil
         ) { [weak self] _ in
@@ -95,12 +103,19 @@ private final class UsageWatchLifecycle: @unchecked Sendable {
 
     func takeTriggers() -> [UsageWatchTrigger] {
         lock.withLock {
-            defer { woke = false }
-            return woke ? [.wake] : []
+            defer { woke = false; recoveryRequested = false }
+            var triggers: [UsageWatchTrigger] = woke ? [.wake] : []
+            if recoveryRequested {
+                triggers.append(.recoveryRequested)
+            }
+            return triggers
         }
     }
 
     func close() {
+        if let recoveryObserver {
+            DistributedNotificationCenter.default().removeObserver(recoveryObserver)
+        }
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }

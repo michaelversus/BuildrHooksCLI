@@ -1,7 +1,8 @@
 # Account usage wire version 1
 
-Delivered by the one-shot `usage refresh --provider codex` command (issue #21 under
-[PRD #20](https://github.com/michaelversus/BuildrHooksCLI/issues/20)). The sender uses
+Delivered by `usage refresh --provider codex` and the foreground
+`usage watch --provider codex` collector under
+[PRD #20](https://github.com/michaelversus/BuildrHooksCLI/issues/20). The sender uses
 Codex-owned authentication and its full account limits read; see the
 [official app-server protocol](https://learn.chatgpt.com/docs/app-server).
 Installed schema generation was inspected for initialization, account/read and
@@ -40,8 +41,9 @@ Status codes are `pending`, `ready`, `authentication_required`, `temporary_failu
 `temporary_failure` status while retaining distinct CLI outcomes where applicable.
 Each provider has a durable monotonically increasing revision shared by emitted
 observations; receivers track snapshot and status revision floors **separately**.
-The latest invalidation revision is included in status, initially zero. Actual clear
-and account-change invalidation will be implemented by the later recovery slice.
+The latest invalidation revision is included in status, initially zero. Account changes
+durably invalidate earlier snapshots before new-account state is published. Explicit
+clear will be delivered by the subsequent ownership/control slice.
 
 `UsageWire` validates both encoding and decoding. Payloads are limited to 64 KiB of
 UTF-8, schema version must be 1, provider/required fields must be well formed, revision
@@ -55,12 +57,48 @@ an older retained snapshot. Untrusted payload validation does not authenticate a
 
 The primary test seam is `UsageRuntime`, with injected provider fetcher, parser,
 clock, notifier, output and storage. Simulated full responses and fake executable
-transports exercise this path without live credentials. The one-shot implementation
+transports exercise this path without live credentials. The collector
 persists minimal state atomically at `~/.codex/buildr-artifacts/account-usage.json`,
-with owner-only file permissions, and never replays cache. No account identity or
-fingerprint is persisted in this slice. A pending status is best-effort published;
+with owner-only file permissions. Private metadata contains a random per-provider salt
+and SHA-256 account fingerprint, never a raw ID or email. These fields are excluded
+from notifications and diagnostics. A pending status is best-effort published;
 final storage/publication failure is a nonzero CLI outcome. A successful refresh
 reports attempted publication only, not receipt.
+
+## Recovery
+
+An available foreground collector listens for `ai.buildrai.account-usage-requested`
+with **no userInfo**. Requests containing userInfo are ignored. It replays every available
+selected provider's valid snapshot and collection status, including known failures and
+invalidation when no snapshot remains. Requests do not fetch limits, launch BuildrAI,
+or bypass thirty-second fetch spacing/retry restrictions. Replies are coalesced globally
+to at most one per second; there is no acknowledgement or durable request queue.
+
+Replay preserves snapshot/status revisions, collection and status observation times,
+and retry times. Stale values retain their real age (fifteen minutes marks staleness);
+delivery does not refresh them. Snapshot and status ordering remain independent.
+
+Before restart replay the collector uses a bounded account identity read without a
+limits fetch. It accepts only the optional `workspaceRouting.chatgptAccountId`
+(experimental in the inspected installed schema) matching the stored fingerprint;
+email, plan, provider name and authentication mode cannot prove continuity. The full
+limits response's nullable `accountId` takes precedence for observation ownership.
+Installed protocol versions may supply no routing ID at all: in that case cached usage
+is withheld, ready status becomes pending, and known failure status remains available
+until a fresh usable scheduled fetch succeeds. An identity-free fresh observation may
+be replayed during the same uninterrupted collector session, but cannot establish
+continuity for a later restart. Sparse authentication events revoke that session proof
+before recovery; they request a throttled full read rather than providing observations.
+Connection loss and identity-free failed/unavailable full reads also revoke prior
+session proof; independently retained failure status is still replayed.
+
+Detected identity changes discard previous-account snapshots and persist a newer
+invalidation before publishing state, even when new limits are unavailable. Salt,
+fingerprint, ordering, invalidation, status, and observations are committed together.
+Persistence failure withholds unverified usage. This does not guarantee detection of
+an external sign-in change that Codex does not report; the next full read/identity check
+must supply sufficient identity. Recovery requires both an available collector and a
+receiver; a stopped collector cannot answer requests.
 
 Pending manual integration: with BuildrAI's separately implemented receiver running,
 verify actual snapshot/status string delivery and retained/widget presentation. Repeat

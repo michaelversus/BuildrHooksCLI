@@ -7,6 +7,8 @@ public struct UsageProviderState: Codable, Sendable {
     public var lastFetchStartedAt: Int64?
     public var retryNotBefore: Int64?
     public var temporaryFailureCount: Int?
+    public var accountFingerprint: String?
+    public var fingerprintSalt: String?
     public var snapshot: UsageSnapshot?
     public var status: UsageCollectionStatus?
     public init() {}

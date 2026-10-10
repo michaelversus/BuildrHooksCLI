@@ -31,6 +31,23 @@ struct CodexUsageFetcherTests {
         #expect(try CodexUsageParser().windows(from: data).first?.usedPercent == 12)
     }
 
+    @Test func recoveryIdentityReadUsesOptionalRoutingIdentityWithoutReadingLimits() throws {
+        for routing in ["null", #"{"chatgptAccountId":"account-A"}"#] {
+            let file = try executable("""
+            read -r initialize
+            echo '{"id":1,"result":{}}'
+            read -r initialized
+            read -r account
+            case "$account" in *rateLimits*) exit 1;; *account*read*) ;; *) exit 1;; esac
+            printf '%s%s\\n' '{"id":2,"result":{"account":{"type":"chatgpt",' \\
+                '"email":"private@example.com"},"workspaceRouting":\(routing)}}'
+            """)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let identity = try CodexUsageFetcher(executablePath: file.path).currentAccountIdentity(timeout: 2)
+            #expect(identity == (routing == "null" ? nil : "account-A"))
+        }
+    }
+
     @Test func persistentConnectionReadsIdleAndInFlightEventsAndReconnects() throws {
         let file = try executable("""
         read -r initialize

@@ -447,8 +447,12 @@ requires the separate BuildrAI integration check.
 
 Minimal state and per-provider revisions are atomically retained with owner-only file
 permissions at `~/.codex/buildr-artifacts/account-usage.json`. Failure preserves a
-previous observation's time and values, but this one-shot command never publishes
-cached observations: account continuity and recovery are not delivered yet.
+previous observation's time and values. One-shot refresh publishes only fresh usage;
+foreground watch also answers verified recovery requests with original timestamps and
+revisions. Private salted fingerprints establish account continuity when sufficient
+identity exists; otherwise retained usage is withheld until a fresh usable fetch.
+Account changes durably invalidate previous-account snapshots, even with unavailable
+new limits.
 Service installation and clear are not delivered yet. The existing hook commands and prompt-gate exits retain
 their behavior.
 
@@ -493,3 +497,10 @@ of a refresh. A watch does not imply that the BuildrAI receiver is running.
 Values are stale once at least fifteen minutes old, using their original collection
 time; failures never change that time. Independent provider state is reserved for
 future implementations; selecting Claude currently returns a validation error.
+
+Foreground watch answers `ai.buildrai.account-usage-requested` notifications with no
+userInfo, replaying selected available providers at most once per second globally.
+Recovery includes retained status and invalidation even without a snapshot, triggers
+no limits fetch, and cannot acknowledge delivery. Both collector and receiver must be
+available. Restart verification uses optional routing identity; protocol versions
+without it report pending collection (or a known failure) and withhold cached usage.
