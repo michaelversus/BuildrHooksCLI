@@ -94,7 +94,7 @@ struct RawHookEventQueueTests {
         try #"{"version":"1.2.2"}"#.write(to: markerURL, atomically: true, encoding: .utf8)
 
         let rawHooksPath = rootURL.appending(path: ".buildrai/inbox/raw-hooks")
-        try Data("not a directory".utf8).write(to: rawHooksPath.deletingLastPathComponent().appending(path: "inbox"))
+        try Data("not a directory".utf8).write(to: rawHooksPath.deletingLastPathComponent())
         let queue = RawHookEventQueue(bridgeCLIVersion: "1.2.3")
 
         #expect(throws: (any Error).self) {

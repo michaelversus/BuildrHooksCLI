@@ -419,3 +419,61 @@ This records the version that most recently handled a hook in that repository.
 It does not report every `buildrhooks` executable installed on the machine. After
 a Homebrew upgrade, the marker remains at the older version until the next
 successful hook invocation in that repository.
+
+## One-shot account usage
+
+```sh
+buildrhooks usage refresh --provider codex
+buildrhooks usage refresh --provider codex --json --codex-path /absolute/path/to/codex
+```
+
+The provider selection is explicit and repeatable; repeating `codex` collects it once.
+Only Codex is currently supported. Install Codex separately and sign in using its own
+commands. The collector finds an executable on `PATH`, or uses the absolute
+`--codex-path` override. It never forces login or reads authentication files.
+
+A refresh initializes an owned Codex app-server stdio connection, reads account
+state, then requests full `account/rateLimits/read` data within a shared thirty-second
+deadline. All available primary and secondary windows are normalized, preferring
+multi-bucket data over the legacy single bucket. Window roles do not imply durations.
+Missing duration/reset stays absent, missing windows stay absent, and percentages
+above 100 are retained. Credits and identifying details are excluded.
+
+Every successful fresh usable fetch, including unchanged values, persists a new
+observation and attempts macOS distributed publication. Notifications do not launch
+BuildrAI, write its App Group, or acknowledge receipt. Actual receipt/widget behavior
+requires the separate BuildrAI integration check.
+
+Minimal state and per-provider revisions are atomically retained with owner-only file
+permissions at `~/.codex/buildr-artifacts/account-usage.json`. Failure preserves a
+previous observation's time and values, but this one-shot command never publishes
+cached observations: account continuity and recovery are not delivered yet. Watch,
+service installation, clear, scheduling, and recovery are also not delivered or
+advertised by this slice. The existing hook commands and prompt-gate exits retain
+their behavior.
+
+JSON output contains `provider`, `outcome`, optional `retryAt`, `freshSnapshot`, and
+`publicationAttempted`. A fresh snapshot plus attempted publication is required for
+success. `publicationAttempted` does not mean confirmed delivery. On a reported
+publication error the command returns failure even if an earlier notification was
+attempted. Error diagnostics contain only fixed outcome codes, never raw Codex errors.
+
+| Outcome | Exit code |
+| --- | --- |
+| `refreshed` | 0 |
+| `authentication_required` | 10 |
+| `temporary_failure` | 11 |
+| `throttled` | 12 |
+| `timeout` | 13 |
+| `usage_unavailable` | 14 |
+| `persistence_failure` | 15 |
+| `publication_failure` | 16 |
+| `executable_unavailable` | 17 |
+
+Authentication failure, timeout, temporary failure, throttling, and absent usable limits
+never become zero usage or refresh the old observation. A provider retry restriction,
+when supplied, is returned as `retryAt`. Argument validation uses the CLI parser's
+standard errors. The additive capabilities fields `accountUsageRefreshProviders` and
+`accountUsageSchemaVersions` advertise only delivered refresh support and schema 1.
+
+The shared notification contract is documented in [account usage wire](docs/account-usage-wire.md).
