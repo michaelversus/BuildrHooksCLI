@@ -61,6 +61,8 @@ public enum UsageOutcome: String, Codable, Sendable {
     case executableUnavailable = "executable_unavailable"
     case cancelled
     case unsupportedProvider = "unsupported_provider"
+    case collectorRunning = "collector_running"
+    case coordinationUnavailable = "coordination_unavailable"
     public var exitCode: Int32 {
         switch self {
         case .refreshed: 0
@@ -74,6 +76,8 @@ public enum UsageOutcome: String, Codable, Sendable {
         case .executableUnavailable: 17
         case .cancelled: 18
         case .unsupportedProvider: 19
+        case .collectorRunning: 20
+        case .coordinationUnavailable: 21
         }
     }
 }
@@ -84,6 +88,14 @@ public struct UsageRefreshResult: Codable, Sendable {
     public let retryAt: Int64?
     public let freshSnapshot: Bool
     public let publicationAttempted: Bool
+    public init(provider: UsageProvider, outcome: UsageOutcome, retryAt: Int64?,
+                freshSnapshot: Bool, publicationAttempted: Bool) {
+        self.provider = provider
+        self.outcome = outcome
+        self.retryAt = retryAt
+        self.freshSnapshot = freshSnapshot
+        self.publicationAttempted = publicationAttempted
+    }
 }
 
 /// Primary command, collection, and verified recovery seam.
@@ -119,21 +131,27 @@ public struct UsageRuntime: Sendable {
     @discardableResult
     public func refresh(provider: UsageProvider = .codex, json: Bool = false) -> UsageRefreshResult {
         let result = collect(provider: provider)
+        report(result, json: json)
+        return result
+    }
+
+    public func report(_ result: UsageRefreshResult, json: Bool = false) {
         if json, let data = try? JSONEncoder().encode(result), let json = String(data: data, encoding: .utf8) {
             output(json)
         } else {
             let guidance = result.outcome == .executableUnavailable
                 ? " Install Codex or provide an executable with --codex-path." : ""
             output("Codex usage: \(result.outcome.rawValue). Publication attempted: \(result.publicationAttempted)."
-                + " Receipt is not acknowledged." + guidance)
+                + " Receipt is not acknowledged." + guidance
+                + (result.retryAt.map { " Retry at Unix milliseconds: \($0)." } ?? ""))
         }
-        return result
     }
 
     /// One synchronous owner drives all triggers. Wait/clock/event sources are injectable;
     /// events carry no observation data and only request a full read.
     public func watch(
         providers: [UsageProvider], json: Bool = false,
+        control: () -> Void = {},
         triggers: @Sendable () -> [UsageWatchTrigger] = { [] },
         wait: @Sendable (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
     ) {
@@ -149,6 +167,7 @@ public struct UsageRuntime: Sendable {
         var pending = Set(selected)
         var nextPoll = Dictionary(uniqueKeysWithValues: selected.map { ($0, milliseconds()) })
         while !isCancelled() {
+            control()
             let external = triggers()
             for provider in selected {
                 processWatchProvider(provider, external: external, json: json, pending: &pending, nextPoll: &nextPoll)
@@ -219,7 +238,7 @@ public struct UsageRuntime: Sendable {
             || outcome == .executableUnavailable
     }
 
-    private func collect(provider: UsageProvider) -> UsageRefreshResult {
+    func collect(provider: UsageProvider) -> UsageRefreshResult {
         guard provider == .codex || additionalFetchers[provider] != nil else {
             return result(provider, .unsupportedProvider)
         }

@@ -13,7 +13,8 @@ struct UsageCommand: ParsableCommand {
 
 struct UsageRefreshCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "refresh", abstract: "Collect and attempt publication of a fresh Codex usage observation."
+        commandName: "refresh",
+        abstract: "Collect fresh usage, delegating to the single running collector when available."
     )
     @Option(name: .long, help: "Provider to collect (codex). May be repeated.")
     var provider: [String] = []
@@ -29,7 +30,13 @@ struct UsageRefreshCommand: ParsableCommand {
 
     func run() throws {
         let runtime = UsageRuntime(fetcher: CodexUsageFetcher(executablePath: codexPath))
-        let result = runtime.refresh(json: json)
+        let lifecycle = UsageWatchLifecycle()
+        defer { lifecycle.close() }
+        let coordination = UsageCoordination()
+        var ownedRuntime = runtime
+        ownedRuntime.isCancelled = { lifecycle.cancelled }
+        let result = coordination.refresh(runtime: ownedRuntime, cancelled: { lifecycle.cancelled })
+        runtime.report(result, json: json)
         if result.outcome.exitCode != 0 {
             throw ExitCode(result.outcome.exitCode)
         }
@@ -38,7 +45,8 @@ struct UsageRefreshCommand: ParsableCommand {
 
 struct UsageWatchCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "watch", abstract: "Monitor Codex usage in the foreground until interrupted."
+        commandName: "watch",
+        abstract: "Monitor Codex usage as the single collector; exit if another collector owns it."
     )
     @Option(name: .long, help: "Provider to collect (codex). May be repeated; collected once.")
     var provider: [String] = []
@@ -53,12 +61,37 @@ struct UsageWatchCommand: ParsableCommand {
         }
     }
 
-    func run() {
+    func run() throws {
         let lifecycle = UsageWatchLifecycle()
         defer { lifecycle.close() }
         var runtime = UsageRuntime(fetcher: CodexUsageFetcher(executablePath: codexPath))
         runtime.isCancelled = { lifecycle.cancelled }
-        runtime.watch(providers: [.codex], json: json, triggers: { lifecycle.takeTriggers() }, wait: {
+        let coordination = UsageCoordination()
+        defer { coordination.close() }
+        do {
+            guard try coordination.acquire() else {
+                runtime.report(
+                    UsageRefreshResult(provider: .codex, outcome: .collectorRunning,
+                                       retryAt: nil, freshSnapshot: false, publicationAttempted: false),
+                    json: json
+                )
+                FileHandle.standardError.write(Data("A usage collector is already running. Use usage refresh.\n".utf8))
+                throw ExitCode(UsageOutcome.collectorRunning.exitCode)
+            }
+            try coordination.startServing()
+        } catch let code as ExitCode {
+            throw code
+        } catch {
+            runtime.report(
+                UsageRefreshResult(provider: .codex, outcome: .coordinationUnavailable,
+                                   retryAt: nil, freshSnapshot: false, publicationAttempted: false),
+                json: json
+            )
+            throw ExitCode(UsageOutcome.coordinationUnavailable.exitCode)
+        }
+        runtime.watch(providers: [.codex], json: json, control: {
+            coordination.serve { runtime.dispatch($0) }
+        }, triggers: { lifecycle.takeTriggers() }, wait: {
             _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval($0))
         })
     }

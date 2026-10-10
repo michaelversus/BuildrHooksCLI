@@ -433,7 +433,7 @@ Only Codex is currently supported. Install Codex separately and sign in using it
 commands. The collector finds an executable on `PATH`, or uses the absolute
 `--codex-path` override. It never forces login or reads authentication files.
 
-A refresh initializes an owned Codex app-server stdio connection, reads account
+Without a running collector, a refresh initializes an owned Codex app-server stdio connection, reads account
 state, then requests full `account/rateLimits/read` data within a shared thirty-second
 deadline. All available primary and secondary windows are normalized, preferring
 multi-bucket data over the legacy single bucket. Window roles do not imply durations.
@@ -473,6 +473,10 @@ attempted. Error diagnostics contain only fixed outcome codes, never raw Codex e
 | `persistence_failure` | 15 |
 | `publication_failure` | 16 |
 | `executable_unavailable` | 17 |
+| `cancelled` | 18 |
+| `unsupported_provider` | 19 |
+| `collector_running` | 20 |
+| `coordination_unavailable` | 21 |
 
 Authentication failure, timeout, temporary failure, throttling, and absent usable limits
 never become zero usage or refresh the old observation. A provider retry restriction,
@@ -504,3 +508,21 @@ Recovery includes retained status and invalidation even without a snapshot, trig
 no limits fetch, and cannot acknowledge delivery. Both collector and receiver must be
 available. Restart verification uses optional routing identity; protocol versions
 without it report pending collection (or a known failure) and withhold cached usage.
+
+Watch and one-shot commands share an exclusive per-user lock at
+`~/.codex/buildr-artifacts/account-usage.lock`. A second watch exits with
+`collector_running` and a redacted diagnostic. Refresh delegates to the running
+collector through `account-usage.sock` beside the cache, with owner-only permissions
+and peer-user checks on both ends. The collector serializes commands with polling,
+recovery, and provider events. Requests available together share one actual result;
+requests arriving during collection receive the next actual result, usually a
+`throttled` outcome with `retryAt` (Unix milliseconds), rather than bypassing spacing.
+
+Refresh waits at most forty seconds, including coordination and the thirty-second
+fetch deadline, and responds to interruption. The private channel accepts only
+version 1 refresh requests for Codex, bounds frames to 4 KiB, caps queued clients,
+and drops incomplete requests after two seconds once accepted. Disconnected clients
+do not stop the shared collector. Endpoint recovery requires holding the lock;
+commands never remove a live collector's endpoint or lock file. Distributed recovery
+notifications remain display replay requests and cannot invoke state-changing commands.
+A delegated `--codex-path` does not replace the running collector's executable.
