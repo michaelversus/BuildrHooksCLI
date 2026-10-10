@@ -51,7 +51,7 @@ public struct DistributedUsageNotifier: UsageNotifying {
 }
 
 public enum UsageOutcome: String, Codable, Sendable {
-    case refreshed
+    case refreshed, cleared, invalidated
     case authenticationRequired = "authentication_required"
     case temporaryFailure = "temporary_failure"
     case throttled, timeout
@@ -65,7 +65,8 @@ public enum UsageOutcome: String, Codable, Sendable {
     case coordinationUnavailable = "coordination_unavailable"
     public var exitCode: Int32 {
         switch self {
-        case .refreshed: 0
+        case .refreshed, .cleared: 0
+        case .invalidated: 22
         case .authenticationRequired: 10
         case .temporaryFailure: 11
         case .throttled: 12
@@ -86,10 +87,12 @@ public struct UsageRefreshResult: Codable, Sendable {
     public let provider: UsageProvider
     public let outcome: UsageOutcome
     public let retryAt: Int64?
+    public let localCleared: Bool
     public let freshSnapshot: Bool
     public let publicationAttempted: Bool
     public init(provider: UsageProvider, outcome: UsageOutcome, retryAt: Int64?,
-                freshSnapshot: Bool, publicationAttempted: Bool) {
+                freshSnapshot: Bool, publicationAttempted: Bool, localCleared: Bool = false) {
+        self.localCleared = localCleared
         self.provider = provider
         self.outcome = outcome
         self.retryAt = retryAt
@@ -141,8 +144,9 @@ public struct UsageRuntime: Sendable {
         } else {
             let guidance = result.outcome == .executableUnavailable
                 ? " Install Codex or provide an executable with --codex-path." : ""
-            output("Codex usage: \(result.outcome.rawValue). Publication attempted: \(result.publicationAttempted)."
-                + " Receipt is not acknowledged." + guidance
+            output("\(result.provider.rawValue) usage: \(result.outcome.rawValue). "
+                + "Publication attempted: \(result.publicationAttempted)."
+                + " Local cleared: \(result.localCleared). Receipt is not acknowledged." + guidance
                 + (result.retryAt.map { " Retry at Unix milliseconds: \($0)." } ?? ""))
         }
     }
@@ -260,6 +264,14 @@ public struct UsageRuntime: Sendable {
         publishPendingStatus(state.status)
         let fetched = fetch(provider: provider, revision: state.revision + 1)
         guard !isCancelled(), fetched.outcome != .cancelled else { return result(provider, .cancelled) }
+        // Reload after the injected provider boundary: a clear invalidates the whole older fetch.
+        do {
+            durable = try store.load()
+            guard let current = durable.providers[provider.rawValue], current.revision == state.revision else {
+                return result(provider, .invalidated)
+            }
+            state = current
+        } catch { return result(provider, .persistenceFailure) }
         let outcome = fetched.outcome
         let retryAt = retryAt(for: outcome, fetchedRetryAt: fetched.retryAt, state: &state)
         let completion = UsageCompletion(provider: provider, fetched: fetched, outcome: outcome, retryAt: retryAt)

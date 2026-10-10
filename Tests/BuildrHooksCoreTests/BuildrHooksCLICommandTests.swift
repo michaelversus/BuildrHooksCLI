@@ -62,6 +62,17 @@ struct BuildrHooksCLICommandTests {
     }
 
     @Test
+    func usageClearRequiresSupportedExplicitSelectionAndDescribesDeliveryLimits() throws {
+        #expect(throws: (any Error).self) { try UsageClearCommand.parse([]).validate() }
+        #expect(throws: (any Error).self) { try UsageClearCommand.parse(["--provider", "claude"]).validate() }
+        let command = try UsageClearCommand.parse(["--provider", "codex", "--provider", "codex", "--json"])
+        try command.validate()
+        #expect(command.provider == ["codex", "codex"] && command.json)
+        #expect(UsageClearCommand.helpMessage().contains("without stopping collection"))
+        #expect(UsageClearCommand.helpMessage().contains("no receiver acknowledgement"))
+    }
+
+    @Test
     func capabilitiesCommandEmitsTextAndSortedJSON() throws {
         let textCommand = try CapabilitiesCommand.parse([])
         try textCommand.run()

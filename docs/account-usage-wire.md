@@ -43,7 +43,10 @@ Each provider has a durable monotonically increasing revision shared by emitted
 observations; receivers track snapshot and status revision floors **separately**.
 The latest invalidation revision is included in status, initially zero. Account changes
 durably invalidate earlier snapshots before new-account state is published. Explicit
-clear will be delivered by the subsequent ownership/control slice.
+`usage clear --provider codex` also commits invalidation before publishing status,
+with no snapshot retained. A fetch started before clear is discarded; a later fresh
+fetch has a revision above the marker and can populate usage again. Clear preserves
+private continuity, ordering and retry restrictions and never stops collection.
 
 `UsageWire` validates both encoding and decoding. Payloads are limited to 64 KiB of
 UTF-8, schema version must be 1, provider/required fields must be well formed, revision

@@ -8,6 +8,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let toolStartEvents: [HookAgentKind]
 
     public let accountUsageRefreshProviders: [UsageProvider]
+    public let accountUsageClearProviders: [UsageProvider]
     public let accountUsageWatchProviders: [UsageProvider]
     public let accountUsageSchemaVersions: [Int]
 
@@ -18,6 +19,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
         claudeDesktopTranscriptSurfaceResolver: true,
         toolStartEvents: [.codex, .claude],
         accountUsageRefreshProviders: [.codex],
+        accountUsageClearProviders: [.codex],
         accountUsageWatchProviders: [.codex],
         accountUsageSchemaVersions: [1]
     )

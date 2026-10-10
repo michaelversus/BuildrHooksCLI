@@ -7,7 +7,7 @@ import Foundation
 struct UsageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "usage", abstract: "Collect account usage independently of repository hooks.",
-        subcommands: [UsageRefreshCommand.self, UsageWatchCommand.self]
+        subcommands: [UsageRefreshCommand.self, UsageWatchCommand.self, UsageClearCommand.self]
     )
 }
 
@@ -36,6 +36,34 @@ struct UsageRefreshCommand: ParsableCommand {
         var ownedRuntime = runtime
         ownedRuntime.isCancelled = { lifecycle.cancelled }
         let result = coordination.refresh(runtime: ownedRuntime, cancelled: { lifecycle.cancelled })
+        runtime.report(result, json: json)
+        if result.outcome.exitCode != 0 {
+            throw ExitCode(result.outcome.exitCode)
+        }
+    }
+}
+
+struct UsageClearCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "clear",
+        abstract: "Discard retained usage without stopping collection; receipt is not acknowledged."
+    )
+    @Option(name: .long, help: "Provider to clear (codex). Explicit selection required.")
+    var provider: [String] = []
+    @Flag(name: .long, help: "Emit localCleared and publicationAttempted as JSON; no receiver acknowledgement.")
+    var json = false
+
+    func validate() throws {
+        guard !provider.isEmpty, provider.allSatisfy({ $0 == "codex" }) else {
+            throw ValidationError("Select --provider codex. Only Codex usage is supported.")
+        }
+    }
+
+    func run() throws {
+        let runtime = UsageRuntime(fetcher: CodexUsageFetcher())
+        let lifecycle = UsageWatchLifecycle()
+        defer { lifecycle.close() }
+        let result = UsageCoordination().clear(runtime: runtime, cancelled: { lifecycle.cancelled })
         runtime.report(result, json: json)
         if result.outcome.exitCode != 0 {
             throw ExitCode(result.outcome.exitCode)

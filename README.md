@@ -425,6 +425,7 @@ successful hook invocation in that repository.
 ```sh
 buildrhooks usage refresh --provider codex
 buildrhooks usage watch --provider codex
+buildrhooks usage clear --provider codex --json
 buildrhooks usage refresh --provider codex --json --codex-path /absolute/path/to/codex
 ```
 
@@ -453,10 +454,10 @@ revisions. Private salted fingerprints establish account continuity when suffici
 identity exists; otherwise retained usage is withheld until a fresh usable fetch.
 Account changes durably invalidate previous-account snapshots, even with unavailable
 new limits.
-Service installation and clear are not delivered yet. The existing hook commands and prompt-gate exits retain
+Service installation is not delivered yet. The existing hook commands and prompt-gate exits retain
 their behavior.
 
-JSON output contains `provider`, `outcome`, optional `retryAt`, `freshSnapshot`, and
+JSON output contains `provider`, `outcome`, optional `retryAt`, `localCleared`, `freshSnapshot`, and
 `publicationAttempted`. A fresh snapshot plus attempted publication is required for
 success. `publicationAttempted` does not mean confirmed delivery. On a reported
 publication error the command returns failure even if an earlier notification was
@@ -464,7 +465,7 @@ attempted. Error diagnostics contain only fixed outcome codes, never raw Codex e
 
 | Outcome | Exit code |
 | --- | --- |
-| `refreshed` | 0 |
+| `refreshed`, `cleared` | 0 |
 | `authentication_required` | 10 |
 | `temporary_failure` | 11 |
 | `throttled` | 12 |
@@ -477,12 +478,13 @@ attempted. Error diagnostics contain only fixed outcome codes, never raw Codex e
 | `unsupported_provider` | 19 |
 | `collector_running` | 20 |
 | `coordination_unavailable` | 21 |
+| `invalidated` (fetch superseded by clear) | 22 |
 
 Authentication failure, timeout, temporary failure, throttling, and absent usable limits
 never become zero usage or refresh the old observation. A provider retry restriction,
 when supplied, is persisted and returned as `retryAt`. Argument validation uses the CLI parser's
-standard errors. The additive capabilities fields `accountUsageRefreshProviders`, `accountUsageWatchProviders`, and
-`accountUsageSchemaVersions` advertise refresh/watch support and schema 1.
+standard errors. The additive capabilities fields `accountUsageRefreshProviders`, `accountUsageWatchProviders`, `accountUsageClearProviders`, and
+`accountUsageSchemaVersions` advertise refresh/watch/clear support and schema 1.
 
 The shared notification contract is documented in [account usage wire](docs/account-usage-wire.md).
 
@@ -519,10 +521,40 @@ requests arriving during collection receive the next actual result, usually a
 `throttled` outcome with `retryAt` (Unix milliseconds), rather than bypassing spacing.
 
 Refresh waits at most forty seconds, including coordination and the thirty-second
-fetch deadline, and responds to interruption. The private channel accepts only
-version 1 refresh requests for Codex, bounds frames to 4 KiB, caps queued clients,
+fetch deadline, and responds to interruption. The private channel accepts
+version 1 refresh and clear requests for Codex, bounds frames to 4 KiB, caps queued clients,
 and drops incomplete requests after two seconds once accepted. Disconnected clients
 do not stop the shared collector. Endpoint recovery requires holding the lock;
 commands never remove a live collector's endpoint or lock file. Distributed recovery
 notifications remain display replay requests and cannot invoke state-changing commands.
 A delegated `--codex-path` does not replace the running collector's executable.
+
+### Clear retained usage
+
+`buildrhooks usage clear --provider codex --json` discards Codex observations and
+atomically commits a newer invalidation before attempting status publication. It
+uses the running collector's private socket, or the same exclusive lock without a
+collector. It preserves revisions, account fingerprints and scheduling restrictions;
+a pre-clear fetch cannot recommit its discarded observation. Other providers' state
+is untouched. No Codex limits fetch or authentication is needed to clear locally.
+
+Clear is distinct from disabling collection: it does not reset account limits or
+stop polling. A later fresh usable fetch can populate usage again. The planned disable command will stop
+collection and automatic startup while preserving recovery metadata. Replayed
+observations keep their original collection times; publication never refreshes age.
+
+JSON reports `localCleared` and `publicationAttempted` independently, with `cleared`
+only after the marker is committed and publication attempted. Publication failure
+returns a nonzero outcome with `localCleared: true`; persistence failure leaves
+committed state intact and reports `localCleared: false`. Neither result confirms
+BuildrAI or widget clearing. Distributed notifications have no acknowledgement or
+queue. Clear never launches or activates BuildrAI. With BuildrAI quit and the service
+disabled, reconciliation waits until both receiver and collector are available for
+a recovery exchange, which includes the invalidation even without a snapshot.
+
+Pending manual receiver check: deliver a snapshot to BuildrAI, clear while it is
+running, and verify its retained/widget values disappear. Repeat with BuildrAI quit
+and collector stopped: verify no app launch, then restart both, request recovery,
+and deliver the saved pre-clear snapshot late; verify it cannot restore values.
+Confirm a later fresh fetch repopulates values with its actual collection time.
+These are separate integration checks, not performed by the simulated tests.

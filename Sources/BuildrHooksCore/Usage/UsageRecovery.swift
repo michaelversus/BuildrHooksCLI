@@ -70,7 +70,7 @@ extension UsageRuntime {
     func prepareRecovery(providers: [UsageProvider], publishInvalidation: Bool = true) {
         for provider in providers where !recovery.isVerified(provider) {
             guard var durable = try? store.load(), var state = durable.providers[provider.rawValue],
-                  state.revision < UInt64.max - 3 else { continue }
+                  state.revision < UInt64.max - 3, state.snapshot != nil else { continue }
             let previousInvalidation = state.latestInvalidationRevision
             let adapter = additionalFetchers[provider] ?? fetcher
             let identity = try? adapter.currentAccountIdentity(timeout: 5)

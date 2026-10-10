@@ -83,21 +83,25 @@ public final class UsageCoordination: @unchecked Sendable {
     }
 
     /// Called synchronously by the owner, never on an independent runtime queue.
-    /// Requests already available in one pump share one actual result; later requests honor spacing.
+    /// Adjacent requests of the same operation share a result; clear separates refresh batches.
     public func serve(dispatch: (UsagePrivateRequest) -> UsageRefreshResult) {
         guard listener >= 0 else { return }
         acceptClients()
         let (waiting, ready) = classifyClients()
         clients = waiting
         guard !ready.isEmpty else { return }
-        let result = dispatch(UsagePrivateRequest())
-        if let data = try? JSONEncoder().encode(result) {
-            let deadline = Self.time + 0.2
-            for descriptor in ready {
-                _ = Self.sendFrame(descriptor, data: data, deadline: deadline, cancelled: { false })
+        var previous: UsagePrivateRequest.Operation?
+        var result: UsageRefreshResult?
+        for (descriptor, request) in ready {
+            if previous != request.operation {
+                result = dispatch(request)
+                previous = request.operation
             }
+            if let result, let data = try? JSONEncoder().encode(result) {
+                _ = Self.sendFrame(descriptor, data: data, deadline: Self.time + 0.2, cancelled: { false })
+            }
+            Darwin.close(descriptor)
         }
-        ready.forEach { Darwin.close($0) }
     }
 
     private func acceptClients() {
@@ -112,13 +116,13 @@ public final class UsageCoordination: @unchecked Sendable {
         }
     }
 
-    private func classifyClients() -> (waiting: [Client], ready: [Int32]) {
+    private func classifyClients() -> (waiting: [Client], ready: [(Int32, UsagePrivateRequest)]) {
         var waiting: [Client] = []
-        var ready: [Int32] = []
+        var ready: [(Int32, UsagePrivateRequest)] = []
         for var client in clients {
             let frame = Self.readFrame(client.descriptor, data: &client.data)
-            if isReady(client, frame: frame) {
-                ready.append(client.descriptor)
+            if let request = readyRequest(client, frame: frame) {
+                ready.append((client.descriptor, request))
             } else if frame == .waiting, Self.time < client.deadline {
                 waiting.append(client)
             } else {
@@ -128,19 +132,20 @@ public final class UsageCoordination: @unchecked Sendable {
         return (waiting, ready)
     }
 
-    private func isReady(_ client: Client, frame: UsageCoordination.FrameState) -> Bool {
+    private func readyRequest(_ client: Client, frame: UsageCoordination.FrameState) -> UsagePrivateRequest? {
         guard frame == .complete,
               let request = try? JSONDecoder().decode(UsagePrivateRequest.self, from: client.data),
-              request.version == 1, request.operation == .refresh, request.provider == .codex else { return false }
+              request.version == 1, request.provider == .codex else { return nil }
         var byte: UInt8 = 0
-        return recv(client.descriptor, &byte, 1, MSG_PEEK) != 0
+        return recv(client.descriptor, &byte, 1, MSG_PEEK) != 0 ? request : nil
     }
 
     /// Delegation retries ownership only while the endpoint is starting or disappearing.
     /// A live lock is never displaced, even when its socket cannot be reached.
     public func refresh(
         runtime: UsageRuntime, timeout: TimeInterval = 40,
-        cancelled: @escaping @Sendable () -> Bool = { false }
+        cancelled: @escaping @Sendable () -> Bool = { false },
+        request: UsagePrivateRequest = UsagePrivateRequest()
     ) -> UsageRefreshResult {
         let deadline = Self.time + max(0, min(timeout, 40))
         while Self.time < deadline, !cancelled() {
@@ -149,13 +154,13 @@ public final class UsageCoordination: @unchecked Sendable {
                     defer { runtime.fetcher.close(); close() }
                     var ownedRuntime = runtime
                     ownedRuntime.isCancelled = { runtime.isCancelled() || cancelled() || Self.time >= deadline }
-                    let result = ownedRuntime.dispatch(UsagePrivateRequest())
+                    let result = ownedRuntime.dispatch(request)
                     if result.outcome == .cancelled, !cancelled(), !runtime.isCancelled(), Self.time >= deadline {
                         return runtime.result(.codex, .timeout)
                     }
                     return result
                 }
-                if let result = try delegate(deadline: deadline, cancelled: cancelled) {
+                if let result = try delegate(deadline: deadline, cancelled: cancelled, request: request) {
                     return result
                 }
             } catch {
@@ -166,7 +171,36 @@ public final class UsageCoordination: @unchecked Sendable {
         return runtime.result(.codex, cancelled() ? .cancelled : .timeout)
     }
 
-    private func delegate(deadline: TimeInterval, cancelled: @escaping @Sendable () -> Bool) throws
+    public func clear(
+        runtime: UsageRuntime, timeout: TimeInterval = 40,
+        cancelled: @escaping @Sendable () -> Bool = { false }
+    ) -> UsageRefreshResult {
+        refresh(runtime: runtime, timeout: timeout, cancelled: cancelled,
+                request: UsagePrivateRequest(operation: .clear))
+    }
+
+    public func close() {
+        clients.forEach { Darwin.close($0.descriptor) }
+        clients = []
+        if listener >= 0 {
+            Darwin.close(listener); listener = -1
+        }
+        if let endpointInode {
+            var info = stat()
+            if lstat(socketURL.path, &info) == 0, info.st_ino == endpointInode, info.st_uid == geteuid() {
+                unlink(socketURL.path)
+            }
+            self.endpointInode = nil
+        }
+        if ownership >= 0 {
+            Darwin.close(ownership); ownership = -1
+        }
+    }
+}
+
+extension UsageCoordination {
+    private func delegate(deadline: TimeInterval, cancelled: @escaping @Sendable () -> Bool,
+                          request: UsagePrivateRequest) throws
         -> UsageRefreshResult? {
         var info = stat()
         guard lstat(socketURL.path, &info) == 0 else {
@@ -184,7 +218,7 @@ public final class UsageCoordination: @unchecked Sendable {
         }
         guard connected else { return timeoutResult(cancelled: cancelled) }
         guard Self.authorized(descriptor) else { throw UsageCoordinationError.unavailable }
-        return try exchangeRequest(on: descriptor, deadline: deadline, cancelled: cancelled)
+        return try exchangeRequest(on: descriptor, deadline: deadline, cancelled: cancelled, request: request)
     }
 
     private func connectToOwner(_ descriptor: Int32, deadline: TimeInterval,
@@ -224,9 +258,10 @@ public final class UsageCoordination: @unchecked Sendable {
     }
 
     private func exchangeRequest(on descriptor: Int32, deadline: TimeInterval,
-                                 cancelled: @escaping @Sendable () -> Bool) throws -> UsageRefreshResult {
-        let request = try JSONEncoder().encode(UsagePrivateRequest())
-        guard Self.sendFrame(descriptor, data: request, deadline: deadline, cancelled: cancelled) else {
+                                 cancelled: @escaping @Sendable () -> Bool,
+                                 request: UsagePrivateRequest) throws -> UsageRefreshResult {
+        let encoded = try JSONEncoder().encode(request)
+        guard Self.sendFrame(descriptor, data: encoded, deadline: deadline, cancelled: cancelled) else {
             return timeoutResult(cancelled: cancelled)
         }
         var data = Data()
@@ -235,7 +270,8 @@ public final class UsageCoordination: @unchecked Sendable {
             case .complete:
                 let result = try JSONDecoder().decode(UsageRefreshResult.self, from: data)
                 guard result.provider == .codex,
-                      result.outcome != .refreshed || (result.freshSnapshot && result.publicationAttempted) else {
+                      result.outcome != .refreshed || (result.freshSnapshot && result.publicationAttempted),
+                      result.outcome != .cleared || (result.localCleared && result.publicationAttempted) else {
                     throw UsageCoordinationError.unavailable
                 }
                 return result
@@ -249,24 +285,6 @@ public final class UsageCoordination: @unchecked Sendable {
     private func timeoutResult(cancelled: () -> Bool) -> UsageRefreshResult {
         UsageRefreshResult(provider: .codex, outcome: cancelled() ? .cancelled : .timeout,
                            retryAt: nil, freshSnapshot: false, publicationAttempted: false)
-    }
-
-    public func close() {
-        clients.forEach { Darwin.close($0.descriptor) }
-        clients = []
-        if listener >= 0 {
-            Darwin.close(listener); listener = -1
-        }
-        if let endpointInode {
-            var info = stat()
-            if lstat(socketURL.path, &info) == 0, info.st_ino == endpointInode, info.st_uid == geteuid() {
-                unlink(socketURL.path)
-            }
-            self.endpointInode = nil
-        }
-        if ownership >= 0 {
-            Darwin.close(ownership); ownership = -1
-        }
     }
 }
 
@@ -354,21 +372,25 @@ extension UsageCoordination {
 public enum UsageCoordinationError: Error { case unavailable }
 
 public struct UsagePrivateRequest: Codable, Sendable {
-    public enum Operation: String, Codable, Sendable { case refresh }
+    public enum Operation: String, Codable, Sendable { case refresh, clear }
     public var version = 1
     public var operation: Operation = .refresh
     public var provider: UsageProvider = .codex
-    public init() {}
+    public init(operation: Operation = .refresh, provider: UsageProvider = .codex) {
+        self.operation = operation
+        self.provider = provider
+    }
 }
 
 public extension UsageRuntime {
-    /// Extend this dispatch boundary for future private commands; clear is not yet implemented.
+    /// Private commands execute synchronously under the collector ownership lock.
     func dispatch(_ request: UsagePrivateRequest) -> UsageRefreshResult {
         guard request.version == 1, request.provider == .codex else {
             return result(request.provider, .unsupportedProvider)
         }
         switch request.operation {
         case .refresh: return collect(provider: request.provider)
+        case .clear: return clear(provider: request.provider)
         }
     }
 }

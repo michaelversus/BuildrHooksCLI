@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
-private final class CoordinatedProvider: UsageFetching, @unchecked Sendable {
+final class CoordinatedProvider: UsageFetching, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
     var count: Int {
@@ -39,11 +39,11 @@ private final class CancellableCoordinationProvider: UsageFetching, @unchecked S
     }
 }
 
-private struct CoordinationNotifier: UsageNotifying {
+struct CoordinationNotifier: UsageNotifying {
     func post(name _: String, payload _: String) {}
 }
 
-private final class CoordinationCapture: @unchecked Sendable {
+final class CoordinationCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
     var output: [String] {
@@ -56,16 +56,16 @@ private final class CoordinationCapture: @unchecked Sendable {
 }
 
 struct UsageCoordinationTests {
-    private func fixture() -> UsageFileStateStore {
+    func fixture() -> UsageFileStateStore {
         UsageFileStateStore(fileURL: URL(fileURLWithPath: "/tmp/u-\(UUID().uuidString)/state.json"))
     }
 
-    private func runtime(_ provider: CoordinatedProvider, _ store: UsageFileStateStore,
-                         capture: CoordinationCapture = CoordinationCapture()) -> UsageRuntime {
+    func runtime(_ provider: CoordinatedProvider, _ store: UsageFileStateStore,
+                 capture: CoordinationCapture = CoordinationCapture()) -> UsageRuntime {
         UsageRuntime(fetcher: provider, store: store, notifier: CoordinationNotifier(), output: { capture.append($0) })
     }
 
-    private func connect(_ server: UsageCoordination) throws -> Int32 {
+    func connect(_ server: UsageCoordination) throws -> Int32 {
         let descriptor = try UsageCoordination.makeSocket()
         let result = try UsageCoordination.withAddress(server.socketURL.path) { Darwin.connect(descriptor, $0, $1) }
         guard result == 0 else { Darwin.close(descriptor); throw UsageCoordinationError.unavailable }
@@ -237,7 +237,7 @@ extension UsageCoordinationTests {
         let runtime = runtime(provider, store)
         for payload in [Data("malformed\n".utf8), Data(repeating: 65, count: 4097),
                         Data(#"{"version":2,"operation":"refresh","provider":"codex"}"#.utf8) + Data([10]),
-                        Data(#"{"version":1,"operation":"clear","provider":"codex"}"#.utf8) + Data([10])] {
+                        Data(#"{"version":1,"operation":"unknown","provider":"codex"}"#.utf8) + Data([10])] {
             let invalid = try connect(server)
             _ = payload.withUnsafeBytes { send(invalid, $0.baseAddress, payload.count, 0) }
             server.serve { runtime.dispatch($0) }
