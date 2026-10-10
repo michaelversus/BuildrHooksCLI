@@ -57,6 +57,7 @@ extension UsageRuntime {
         state.status = status(code, provider: provider, state: state, retryAt: retryAt)
         durable.providers[provider.rawValue] = state
         do { try store.save(durable) } catch { return result(provider, .persistenceFailure, fresh: fresh != nil) }
+        guard !isCancelled() else { return result(provider, .cancelled) }
         if fresh != nil {
             recovery.verify(provider)
         }

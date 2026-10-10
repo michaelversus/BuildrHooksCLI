@@ -108,3 +108,33 @@ verify actual snapshot/status string delivery and retained/widget presentation. 
 with BuildrAI fully quit and confirm refresh does not launch it. These checks were not
 performed by the simulated-notifier tests. Live account fetch and service installation
 are outside this slice's automated validation.
+
+## Separate BuildrAI integration checklist
+
+The CLI's delivered sender/service contract is independent of the BuildrAI receiver.
+BuildrAI must validate the bounded schema as untrusted display data, retain separate
+snapshot/status revision floors, apply invalidation atomically to widget storage, and
+retain stale values at fifteen minutes with their original collection time. The CLI
+never owns the app's background setting, Quit behavior, or App Group.
+
+Pending reviewer actions with the actual receiver and distributed notification transport:
+
+1. Receive a fresh snapshot and separate status, then request recovery; verify original
+   timestamps/revisions and all available windows in retained/widget presentation.
+2. Advance observation age to fifteen minutes; verify stale values remain and a failure
+   status does not refresh their age. Deliver an older snapshot after a newer status;
+   verify independent ordering and rejection of superseded revisions.
+3. Clear while the app is running; verify immediate local invalidation is accepted.
+   Quit BuildrAI and stop the collector, clear locally, then start both and request
+   recovery. Verify eventual widget clearing and rejection of delayed pre-clear data.
+4. Change accounts/restart with missing identity; verify unverified retained values are
+   withheld, account change invalidates earlier values, and a later usable fetch can
+   populate new observations above the invalidation floor.
+5. Close windows and verify background receipt; Quit/Command-Q and verify full app exit.
+   The enabled collector continues without launching/activating BuildrAI. Disable removes
+   the job, stops its owned children within five seconds, and does not restart it.
+6. For approved distribution, verify real userInfo string delivery from the installed
+   CLI to the receiver. Simulated publication, startup configuration, and process tests
+   do not establish OS delivery, live account compatibility, or App Store approval.
+
+No real receiver check or login-service installation was performed by ordinary tests.

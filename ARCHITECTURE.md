@@ -1,343 +1,177 @@
 # BuildrHooksCLI Architecture
 
-This package is a small relay that turns hook invocations from Codex into durable JSON files under a repository-local queue. Its job is intentionally narrow:
+BuildrHooksCLI owns two independent paths in the same Swift 6.2/macOS 14 package:
+repository-local Codex/Claude hook relay and explicitly enabled account usage
+collection. BuildrAI owns project selection, hook configuration, notification receipt,
+widget storage, and display. The CLI never writes BuildrAI's App Group.
 
-1. Accept a CLI command such as `buildrhooks codex session-start`.
-2. Read the hook payload from standard input.
-3. Convert that payload into a normalized `RawHookEvent`.
-4. Write the event into `.buildrai/inbox/raw-hooks` under the current repository.
-5. Broadcast a distributed macOS notification so another process can react.
+## Modules and entrypoints
 
-There is one intentional blocking exception: a Codex `prompt-submit` payload with a standalone `#BuildrAI-Eval` line enters Prompt Gate. Prompt Gate uses repo-local handshake files to ask BuildrAI for an allow/deny response before the prompt continues.
-
-## Module Layout
-
-- `BuildrHooksCLI`
-  Thin executable target built on `swift-argument-parser`. It defines the user-facing command tree and forwards execution into the core library.
-- `BuildrHooksCore`
-  Contains the actual runtime behavior: argument validation, payload parsing, repository discovery, queue persistence, and notifications.
+`BuildrHooksCLI` is the ArgumentParser executable. Its hook commands call
+`BuildrHooksCLIEntrypoint`; `usage` commands call `UsageRuntime`, with
+`UsageCoordination` for exclusive ownership and private command delegation, and
+`UsageService` for user LaunchAgent management. `BuildrHooksCore` implements these
+paths with injected clocks, provider transport, storage, notifier and output boundaries.
+Usage failures cannot change hook ingestion or Prompt Gate exits.
 
 ```mermaid
 flowchart LR
-    User["Hook caller / shell"] --> CLI["BuildrHooksCLI\n(ArgumentParser command tree)"]
-    CLI --> Entrypoint["BuildrHooksCLIEntrypoint"]
-    Entrypoint --> Gate["PromptGate\n(tagged prompt-submit only)"]
-    Entrypoint --> Factory["CodexRawHookEventFactory"]
-    Entrypoint --> Locator["RepositoryRootLocator"]
-    Entrypoint --> Queue["RawHookEventQueue"]
-    Entrypoint --> Notifier["DistributedHookEventNotifier"]
-    Factory --> Event["RawHookEvent"]
-    Locator --> Repo["Repository root"]
-    Queue --> Disk[".buildrai/inbox/raw-hooks"]
-    Notifier --> Consumer["Downstream BuildrAI listener"]
+    CLI[BuildrHooksCLI] --> Hook[BuildrHooksCLIEntrypoint]
+    CLI --> Coordination[UsageCoordination]
+    CLI --> Service[UsageService]
+    Service --> Launchd[User LaunchAgent]
+    Launchd --> Coordination
+    Coordination --> Usage[UsageRuntime]
+    Hook --> Queue[Repository hook queue]
+    Usage --> Codex[Owned Codex app-server]
+    Usage --> Cache[Private user-global usage state]
+    Hook --> HookNotify[Hook notification]
+    Usage --> UsageNotify[Snapshot and status notifications]
+    HookNotify --> App[Separate BuildrAI receiver]
+    UsageNotify --> App
 ```
 
-## End-to-End Flow
+## Repository hooks
 
-### 1. Command dispatch
+Both `codex` and `claude` expose `session-start`, `prompt-submit`, `stop`, and
+`tool-start`. `BuildrHooksCLIEntrypoint` validates the agent/event command, reads stdin,
+resolves the repository root, and chooses the agent-specific factory. Root discovery
+walks upward to `.git`, falling back to the invocation directory.
 
-The executable entrypoint lives in `Sources/BuildrHooksCLI/BuildrHooksCLICommand.swift`.
+Lifecycle factories produce `RawHookEvent` with source, event kind, CLI receipt time,
+repository/working directory, structured session/transcript/model fields and the
+original valid UTF-8 payload. Codex declared execution surfaces come from matching
+hook-declared transcript metadata. Claude declares a Desktop surface only when its
+matching transcript's latest entrypoint is `claude-desktop`; missing or conflicting
+evidence leaves the surface absent. The host owns Claude settings as recorded in
+[ADR 0001](docs/adr/0001-keep-claude-hook-management-in-the-host.md).
 
-- `BuildrHooksCLICommand` defines the root command, `buildrhooks`.
-- `CodexCommand` defines the `codex` namespace.
-- Each hook event is modeled as its own subcommand:
-  - `session-start`
-  - `prompt-submit`
-  - `stop`
+Tool-start factories produce a separate versioned, content-free event for an observed
+attempt, including denied/failed attempts. They retain source-provided session and tool
+name, optional invocation/subagent identity and declared surface, and exclude tool
+input, arguments, command text and output. Codex's supplied parent session identity is
+preserved; Claude's per-call `agent_id` is carried separately when available. See
+[ADR 0002](docs/adr/0002-content-free-tool-start-events.md).
 
-All three subcommands conform to the private `HookEventExecutable` protocol. Its default `run()` implementation translates the parsed command back into a normalized `[String]` argument list and hands control to `BuildrHooksCLIEntrypoint`.
+`RawHookEventQueue` atomically writes ISO-8601 JSON under
+`<repo>/.buildrai/inbox/raw-hooks`, with timestamp/UUID filenames. It also creates
+`.buildrai/archive/raw-hooks-processed`; BuildrAI owns consumption and archiving.
+The executable supplies its version for the best-effort
+`.buildrai/bridge-cli-version.json` marker after a successful enqueue. The marker
+records the version that last handled a hook, so it can lag an installed upgrade.
+`ai.buildrai.hook-event-enqueued` carries the repository root path. Usage notifications
+have their own names and schema and never repurpose this hook notification.
 
-This keeps `ArgumentParser` concerns at the edge and leaves the actual logic in testable library code.
-
-### 2. Runtime orchestration
-
-`Sources/BuildrHooksCore/BuildrHooksCLIEntrypoint.swift` is the orchestration layer.
-
-It injects a few environment-dependent behaviors:
-
-- `standardInputProvider`
-- `standardErrorWriter`
-- `currentWorkingDirectoryProvider`
-- `now`
-- `repositoryRootLocator`
-- `queue`
-- `notifier`
-- `promptGate`
-
-That design lets tests drive the CLI behavior without shelling out or depending on global process state.
-
-At runtime, `run(arguments:)` does the following:
-
-1. Drops the executable name and validates that exactly two components remain: `<agent> <event>`.
-2. Validates the agent. Right now the only supported agent is `codex`.
-3. Validates the event string by converting it into `HookEventKind`.
-4. Reads the raw stdin payload.
-5. Resolves the repository root from the current working directory.
-6. For `codex prompt-submit`, parses enough payload metadata to check Prompt Gate.
-7. If a recognized `#BuildrAI-Eval` control line is present, runs the Prompt Gate handshake.
-8. Asks `CodexRawHookEventFactory` to parse and normalize the payload.
-9. Enqueues the resulting `RawHookEvent` as JSON on disk.
-10. Posts a notification containing the repository root path.
-
-Unsupported command shapes, agents, and event names throw `BuildrHooksCLIError` immediately.
-
-Parse and persistence failures are handled differently: they are caught, logged to stderr as warnings, and do not escape the command. This makes hook ingestion best-effort rather than fatal to the caller.
-
-Prompt Gate failures are different by design. Tagged prompts are explicit blocking requests, so unavailable setup, timeout, denial, malformed responses, and protocol problems are reported to stderr and exit non-zero without writing a normal raw hook event.
-
-```mermaid
-sequenceDiagram
-    participant Caller as Hook caller
-    participant Command as BuildrHooksCLICommand
-    participant Entry as BuildrHooksCLIEntrypoint
-    participant Locator as RepositoryRootLocator
-    participant Factory as CodexRawHookEventFactory
-    participant Queue as RawHookEventQueue
-    participant Notify as DistributedHookEventNotifier
-
-    Caller->>Command: buildrhooks codex session-start
-    Command->>Entry: run(arguments:)
-    Entry->>Entry: read stdin payload
-    Entry->>Locator: repositoryRoot(startingAt: cwd)
-    Locator-->>Entry: repository root URL
-    Entry->>Factory: makeEvent(kind, rawPayload, createdAt, cwd, repo)
-    Factory-->>Entry: RawHookEvent
-    Entry->>Queue: enqueue(event, in: repositoryRoot)
-    Queue-->>Entry: written file URL
-    Entry->>Notify: postHookEventEnqueued(repositoryRootPath:)
-    Notify-->>Caller: command completes
-```
+Parsing/persistence failures are warnings and remain best-effort for ordinary hooks.
+Unsupported command shapes throw a caller error. Tool-start telemetry cannot decide
+whether a tool may run.
 
 ## Prompt Gate
 
-Prompt Gate is active only for `buildrhooks codex prompt-submit` payloads whose prompt contains `#BuildrAI-Eval` as a standalone control line. Untagged prompts, session starts, and stops keep the existing best-effort relay behavior.
-
-The tag parser is intentionally strict:
-
-- It recognizes `#BuildrAI-Eval` only on its own line, with optional surrounding whitespace.
-- It removes one or more recognized control-tag lines before evaluation.
-- It ignores prose such as `please mention #BuildrAI-Eval`.
-- It ignores examples inside fenced code blocks.
-- It fails if the evaluated prompt is empty after tag removal.
-
-The evaluated prompt hard limit is 6000 characters. Oversized tagged prompts fail before any lock or request file is created.
-
-### Marker
-
-Prompt Gate is enabled per repository by:
-
-```text
-<repo>/.buildrai/hooks/prompt-gate.json
-```
-
-The marker is durable local setup state. It supports `version`, `enabled`, optional `project_id`, optional `repo_path`, and optional `setup_at`. It does not store evaluator instructions, policy text, thresholds, or Apple Intelligence prompts.
-
-For tagged prompts, missing or disabled markers exit `13`. Malformed or unsupported markers exit `14`. Untagged prompts ignore marker state entirely.
-
-### Handshake Files
-
-Transient request/response files live under:
-
-```text
-<repo>/.buildrai/hooks/prompt-eval/
-```
-
-The CLI uses:
-
-- `inflight.lock`
-- `request.json`
-- `response.json`
-- `stale/`
-
-`PromptGateFileBridge` creates `inflight.lock` with atomic create semantics. If the lock already exists, the CLI exits `11`. It writes `request.json` through a temporary file followed by rename, and refuses symlinked lock, request, or response paths.
-
-The request includes protocol version, request id, timestamps, source, repo path, optional project/session/transcript/model metadata, exact `original_prompt`, tag-stripped `evaluation_prompt`, prompt character count, and prompt limit.
-
-The response must use supported version `1`, match the active `request_id`, and make a decision of `allow` or `deny`. Denials must include a non-empty reason. Allow responses clean owned handshake files and continue into the raw hook queue. Denials print the reason, clean owned files, and exit `10`. Timeouts exit `12`; malformed or mismatched responses exit `16`.
-
-## Payload Normalization
-
-`Sources/BuildrHooksCore/Codex/CodexRawHookEventFactory.swift` converts agent-specific payloads into the shared event model.
-
-```mermaid
-flowchart TD
-    Start["Hook command invoked"] --> Kind{"Which hook?"}
-    Kind --> Session["session-start: Decode CodexSessionStartInput"]
-    Kind --> Prompt["prompt-submit: Decode CodexPromptInput"]
-    Kind --> Stop["stop: Decode CodexStopInput"]
-
-    Session --> SessionFields["Extract: session_id:transcript_path?:model?"]
-    Prompt --> PromptFields["Extract:session_id:prompt:transcript_path?:model?"]
-    Stop --> StopFields["Extract:session_id:transcript_path?:model?"]
-
-    SessionFields --> DecodeOK{"Decode succeeds?"}
-    PromptFields --> DecodeOK
-    StopFields --> DecodeOK
-
-    DecodeOK -->|Yes| Event["Build RawHookEvent:agentKind = codex:eventKind = selected hook"]
-    DecodeOK -->|No| Invalid["Map DecodingError: to invalidPayload"]
-
-    Event --> Enqueue["Write JSON file into .buildrai/inbox/raw-hooks"]
-    Enqueue --> Notify["Post distributed notification"]
-    Notify --> Done["Hook relay completes"]
-
-    Invalid --> Warn["Log warning to stderr"]
-    Warn --> Done
-```
-
-### Why a factory exists
-
-Hook payloads are agent-specific and may have different field requirements for each event kind. The factory isolates that knowledge so the rest of the system only deals with a single normalized type: `RawHookEvent`.
-
-### Supported Codex payloads
-
-The factory currently knows how to decode three input shapes:
-
-- `session-start`
-- `prompt-submit`
-- `stop`
-
-Each shape has its own private `Codable` input struct. The public `makeEvent(...)` method:
-
-1. Preserves the original UTF-8 payload string for auditing via `rawPayload`.
-2. Parses the structured fields needed by BuildrAI.
-3. Returns a `RawHookEvent` with:
-   - `agentKind = .codex`
-   - the hook `eventKind`
-   - timestamps and path context supplied by the caller
-   - normalized `sessionID`, `transcriptPath`, and `model`
-
-### Error mapping
-
-If JSON decoding fails, the factory maps `DecodingError` cases into `CodexHookRelayError.invalidPayload`.
-
-This intentionally hides low-level decoding details and gives the caller one stable semantic error: the payload was invalid for the expected hook kind.
-
-## Canonical Event Model
-
-`Sources/BuildrHooksCore/RawHookEvent.swift` defines the persisted event schema.
-
-Important fields:
-
-- `payloadVersion`
-  Version marker for future schema evolution. It currently defaults to `1`.
-- `agentKind`
-  The source agent, currently only `codex`.
-- `eventKind`
-  The hook lifecycle event.
-- `createdAt`
-  Timestamp chosen by the entrypoint, not by the payload.
-- `currentWorkingDirectory`
-  The working directory where the hook was invoked.
-- `repositoryRootPath`
-  The repository root chosen by `RepositoryRootLocator`.
-- `sessionID`, `transcriptPath`, `model`
-  Structured fields extracted from the agent payload.
-- `rawPayload`
-  The original payload string exactly as received, when valid UTF-8.
-
-The queue writes this type as pretty-printed, sorted JSON with ISO 8601 dates.
-
-## Repository Root Resolution
-
-`Sources/BuildrHooksCore/RepositoryRootLocator.swift` determines where queue files should be written.
-
-It walks upward from the current working directory until it finds a `.git` marker.
-
-- If a `.git` entry is found in an ancestor, that ancestor becomes the repository root.
-- If no `.git` marker is found before reaching filesystem root, the original working directory is used instead.
-
-This allows hooks fired from nested directories inside a repository to converge on one shared queue location.
-
-## Queue Persistence
-
-`Sources/BuildrHooksCore/RawHookEventQueue.swift` is responsible for durable on-disk storage.
-
-### Directory layout
-
-For a repository root at `<repo>`, the queue uses:
-
-- `<repo>/.buildrai/inbox/raw-hooks`
-- `<repo>/.buildrai/archive/raw-hooks-processed`
-
-```mermaid
-flowchart TD
-    Repo["<repo>"] --> BuildrAI[".buildrai"]
-    BuildrAI --> Inbox["inbox"]
-    Inbox --> Raw["raw-hooks"]
-    BuildrAI --> Archive["archive"]
-    Archive --> Processed["raw-hooks-processed"]
-    Raw --> Pending["timestamp-uuid.json\npending events"]
-    Processed --> Done["processed event files"]
-```
-
-The enqueue step ensures both directories exist before writing anything. The processed archive directory is created up front because downstream consumers are expected to move handled files there.
-
-### File naming
-
-Each file name is:
-
-- UTC timestamp in `yyyyMMdd'T'HHmmssSSS'Z'` format
-- followed by a lowercase UUID
-- ending in `.json`
-
-That gives deterministic chronological ordering plus uniqueness.
-
-### Write behavior
-
-The queue encodes the `RawHookEvent` and writes it atomically to the raw-hooks inbox. Atomic writes reduce the chance of consumers seeing a partially written file.
-
-## Notification Handoff
-
-`Sources/BuildrHooksCore/HookEventNotifier.swift` defines the final handoff after enqueue succeeds.
-
-- `HookEventNotifying` is the abstraction.
-- `DistributedHookEventNotifier` is the macOS implementation.
-
-It posts a distributed notification named `ai.buildrai.hook-event-enqueued` with the repository root path in `userInfo`.
-
-The CLI itself does not process queued events. It only persists them and signals that new work is available.
-
-## Error Handling Strategy
-
-There are two distinct error classes in the design:
-
-### Usage errors
-
-`BuildrHooksCLIError` covers invalid command shape, unsupported agents, and unsupported event names.
-
-These are treated as programmer or caller errors and are thrown directly.
-
-### Ingestion errors
-
-Payload parsing errors and queue write failures happen after the command has already been recognized as valid.
-
-These are caught inside `BuildrHooksCLIEntrypoint.run(arguments:)`, reported to stderr as warnings, and suppressed so the hook caller does not fail hard.
-
-That tradeoff suggests the CLI is meant to be resilient inside a larger automation chain where dropping one hook is preferable to interrupting the user flow.
-
-## Testability Notes
-
-Most of the important behavior lives in `BuildrHooksCore` rather than the executable target. That enables focused unit tests for:
-
-- entrypoint orchestration
-- payload parsing and normalization
-- queue file creation
-- repository root discovery
-- CLI error formatting
-
-The injected closures and protocol-based notifier are what make those tests straightforward.
-
-## Current Constraints
-
-- Only the `codex` agent is supported.
-- Only three hook events are supported: `session-start`, `prompt-submit`, and `stop`.
-- Queue persistence is local filesystem based.
-- Notification delivery is macOS-specific through `DistributedNotificationCenter`.
-
-If the CLI grows to support more agents, the cleanest extension point is likely:
-
-1. add a new agent case to `HookAgentKind`
-2. add a new raw payload factory for that agent
-3. route the agent in `BuildrHooksCLIEntrypoint`
-4. expose the matching subcommands in `BuildrHooksCLICommand`
+Only Codex `prompt-submit` with a standalone `#BuildrAI-Eval` line enters the blocking
+Prompt Gate path. Claude prompts and ordinary hooks do not. The strict parser removes
+recognized tag lines, ignores prose/fenced examples, rejects empty evaluated prompts,
+and bounds evaluated prompts to 6000 characters before creating requests.
+
+The repository marker `.buildrai/hooks/prompt-gate.json` contains version/enabled and
+optional project/path/setup metadata. Missing/disabled markers exit 13;
+malformed/unsupported markers exit 14. Untagged prompts ignore the marker.
+`PromptGateFileBridge` creates `.buildrai/hooks/prompt-eval/inflight.lock` exclusively,
+rejects symlinked paths, atomically writes `request.json`, and waits for a matching
+version 1 `response.json`. The request carries exact original/evaluated prompts and
+context for evaluation. Allow cleans owned handshake files and continues the queue;
+deny exits 10, busy 11, timeout 12, and invalid/mismatched response 16. Blocking failures
+never enqueue a normal event. Evaluator policy remains the host's responsibility.
+
+## Account usage runtime
+
+The additive `usage refresh`, `watch`, `clear`, and `service enable/disable/status`
+commands require explicit Codex selection for collection and clear. Claude usage is
+reserved but unsupported. Capability schema 1 advertises both hook agents, both
+content-free tool-start producers, Codex refresh/watch/clear/service and usage schema 1.
+
+`CodexUsageFetcher` owns a persistent app-server stdio connection in watch and an
+owned temporary connection for one-shot collection. Codex handles authentication;
+the CLI never reads credential files or forces login. Initialization, account read,
+and full limits read share a thirty-second fetch deadline. Sparse provider events
+request a full read. Startup/wake request collection; polling runs every five minutes.
+Every successful usable full fetch updates collection time, even for unchanged values.
+Starts are spaced by thirty seconds; temporary failures retry exponentially with jitter,
+capped at five minutes. Longer provider retry restrictions win and persist across clear,
+connection loss and restart. Authentication failures wait for an auth event or scheduled
+check. Missing limits report unavailable usage, retaining verified older observations.
+
+`UsageRuntime` is the primary test seam for collection, triggers, recovery and clear.
+Normalized windows preserve actual bucket codes, roles, percentages, duration/reset
+when known; missing data remains absent, values above 100 remain valid and credits are
+excluded. Snapshot/status streams remain separate. The shared schema, redaction and
+validation rules are in [account usage wire](docs/account-usage-wire.md).
+
+## Ownership, persistence and recovery
+
+`UsageCoordination` serializes watch, one-shot refresh and clear through one per-user
+exclusive lock. A second watch exits; refresh/clear delegate over the owner-only Unix
+socket beside the cache, with peer-user checks and bounded version 1 frames/deadlines.
+Only the lock owner removes stale sockets. The lock file remains to prevent independent
+locked inodes; cleanup removes only the socket inode created by that owner.
+
+`UsageFileStateStore` retains minimal observations/status, revisions, retry restrictions,
+and salted fingerprints at `~/.codex/buildr-artifacts/account-usage.json`. Writes use an
+owner-only temporary file, synchronization, atomic rename, and directory synchronization.
+A partial temporary write cannot replace committed state. Invalid ordering fails closed;
+corrupt state is not silently replaced with revision zero. Clear/account change commits
+invalidation before publication and never resets ordering. A fetch reloads committed
+revision after the provider boundary and discards superseded or cancelled results.
+Interrupted publication leaves committed state available for later recovery.
+
+Recovery requests carry no userInfo and coalesce globally to once per second. They do
+not fetch limits or bypass throttling. Before restart replay, an optional bounded Codex
+routing identity must match the private fingerprint. Missing identity withholds cache
+until a fresh usable observation; sparse auth events/connection loss revoke session
+proof. Replay preserves original times/revisions and includes invalidation without a
+snapshot. Account fingerprints and raw identities never enter public payloads/logs.
+
+## Enabled service and shutdown
+
+Explicit enable validates stable CLI/Codex paths and writes a user LaunchAgent directly
+running `usage watch`. `RunAtLoad` starts immediately and at login; `KeepAlive` restarts
+exits while loaded, and `ThrottleInterval` enforces at least thirty seconds between launchd spawn attempts.
+Restart reacquires the same exclusive lock and performs account verification, retaining
+provider configuration and persisted retry restrictions. Codex reconnection additionally
+uses the runtime's bounded failure retry policy.
+
+Disable removes the startup plist then uses `bootout` to remove the job and its restart
+policy. Inspection, removal and ownership waiting share a five-second budget. SIGTERM
+cancels work, including recovery identity reads; late full results are withheld. The
+owned Codex child receives closed stdin/SIGTERM and up to four seconds of grace, then
+SIGKILL if needed, reserving one second inside the parent shutdown deadline. `ExitTimeOut` bounds launchd's collector shutdown to five seconds;
+`AbandonProcessGroup: false` additionally retains launchd cleanup of the job process
+group. Foundation children need not share that group, so the collector directly
+terminates its owned Codex child before the parent deadline. No discovered or unrelated
+PID is signalled. Bootout failure is an
+error: startup is removed, but a loaded job can still run/restart until removal succeeds.
+Cache, ordering and invalidation survive disable. A foreground owner is never displaced.
+The restart/shutdown keys follow the [Apple launchd plist contract](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5).
+
+Service diagnostics separate saved configuration, loaded job, running process, bounded
+endpoint availability and historical collection status. `processHealth` reports
+`configured`, `enabled`, `restarting`, `unavailable` or `stopped`; these are management
+diagnostics, not new notification status codes. An in-flight fetch can make a running
+endpoint temporarily unavailable. Retained `ready` cannot establish process health or
+freshness. JSON stdout excludes identity/paths; redacted diagnostics use stderr.
+
+## BuildrAI integration and evidence
+
+BuildrAI separately owns untrusted notification validation, independent snapshot/status
+revision floors, durable invalidation and atomic widget storage. Values become stale at
+fifteen minutes without changing collection time. Window closing keeps its receiver
+active; Quit/Command-Q fully exits BuildrAI, while the independently enabled collector
+continues. Offline clear eventually reconciles when both sides become available for
+recovery; no notification queue, receipt acknowledgement or immediate offline widget
+clearing is promised.
+
+Simulated provider/process/service adapters and notifier spies prove contracts and
+committed state, not macOS delivery. Pending real-receiver checks are documented in
+[account usage wire](docs/account-usage-wire.md). Ordinary tests install no LaunchAgent,
+use no live credentials, and add no runtime probe. Sender distribution must support
+unsandboxed userInfo payloads; no App Store approval guarantee is claimed.

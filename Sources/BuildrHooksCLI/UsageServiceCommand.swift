@@ -11,7 +11,8 @@ struct UsageServiceCommand: ParsableCommand {
 
 struct UsageServiceEnableCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "enable", abstract: "Opt in to collection now and at login, independently of BuildrAI."
+        commandName: "enable",
+        abstract: "Opt in to collection now and at login with throttled crash restart, independently of BuildrAI."
     )
     @Option(name: .long, help: "Explicit provider selection (codex); may be repeated.")
     var provider: [String] = []
@@ -36,7 +37,7 @@ struct UsageServiceEnableCommand: ParsableCommand {
 struct UsageServiceDisableCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "disable",
-        abstract: "Stop the login collector and remove automatic startup, retaining usage cache."
+        abstract: "Cancel the login collector, remove restart/startup, and retain committed usage cache."
     )
     @Flag(name: .long, help: "Emit service state as JSON.")
     var json = false
@@ -79,6 +80,7 @@ private func reportService(json: Bool, action: () throws -> UsageServiceStatus) 
             try FileHandle.standardOutput.write(encoder.encode(status) + Data([10]))
         } else {
             print("Configured: \(status.configured); installed: \(status.installed)")
+            print("Service process health: \(status.processHealth.rawValue)")
             print("Providers: \(status.enabledProviders.map(\.rawValue).joined(separator: ", "))")
             print(
                 "Service process running: \(status.processRunning); collector available: \(status.collectorAvailable)"

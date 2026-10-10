@@ -35,10 +35,13 @@ public struct UsageFileStateStore: UsageStateStoring {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return .init() }
         let data = try Data(contentsOf: fileURL)
         guard data.count <= 1024 * 1024 else { throw UsageWireError.invalidPayload }
-        return try JSONDecoder().decode(UsageDurableState.self, from: data)
+        let state = try JSONDecoder().decode(UsageDurableState.self, from: data)
+        try validate(state)
+        return state
     }
 
     public func save(_ state: UsageDurableState) throws {
+        try validate(state)
         let directory = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -56,5 +59,24 @@ public struct UsageFileStateStore: UsageStateStoring {
         try handle.write(contentsOf: data)
         try handle.synchronize()
         guard rename(temporaryPath, fileURL.path) == 0 else { throw UsageWireError.invalidPayload }
+        let directoryDescriptor = open(directory.path, O_RDONLY | O_CLOEXEC)
+        guard directoryDescriptor >= 0 else { throw UsageWireError.invalidPayload }
+        defer { Darwin.close(directoryDescriptor) }
+        guard fsync(directoryDescriptor) == 0 else { throw UsageWireError.invalidPayload }
+    }
+
+    private func validate(_ durable: UsageDurableState) throws {
+        for (key, state) in durable.providers {
+            guard state.latestInvalidationRevision <= state.revision,
+                  state.lastFetchStartedAt.map({ $0 >= 0 && $0 <= Int64.max - 30000 }) ?? true,
+                  state.retryNotBefore.map({ $0 >= 0 }) ?? true,
+                  state.temporaryFailureCount.map({ (0 ... 20).contains($0) }) ?? true,
+                  state.snapshot.map({ $0.provider.rawValue == key && $0.revision <= state.revision
+                          && $0.revision > state.latestInvalidationRevision }) ?? true,
+                  state.status.map({ $0.provider.rawValue == key && $0.revision <= state.revision
+                          && $0.latestInvalidationRevision == state.latestInvalidationRevision }) ?? true else {
+                throw UsageWireError.invalidPayload
+            }
+        }
     }
 }

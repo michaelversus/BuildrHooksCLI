@@ -545,8 +545,10 @@ observations keep their original collection times; publication never refreshes a
 
 JSON reports `localCleared` and `publicationAttempted` independently, with `cleared`
 only after the marker is committed and publication attempted. Publication failure
-returns a nonzero outcome with `localCleared: true`; persistence failure leaves
-committed state intact and reports `localCleared: false`. Neither result confirms
+returns a nonzero outcome with `localCleared: true`. Persistence failure can occur
+after atomic replacement: read-back reports `localCleared: true` only when the expected
+invalidation and absent snapshot are verified; otherwise it reports false. Publication
+is not attempted after persistence failure, and durability is not confirmed. Neither result confirms
 BuildrAI or widget clearing. Distributed notifications have no acknowledgement or
 queue. Clear never launches or activates BuildrAI. With BuildrAI quit and the service
 disabled, reconciliation waits until both receiver and collector are available for
@@ -610,3 +612,38 @@ ends the app's receiver, while the independently enabled collector continues. Th
 service never writes BuildrAI's App Group. Use `usage clear --provider codex` separately
 to discard retained usage. Capability `accountUsageServiceProviders` advertises the
 supported opt-in service providers.
+
+### Crash recovery and bounded shutdown
+
+An enabled LaunchAgent uses `KeepAlive` and a thirty-second `ThrottleInterval` so
+collector exits restart with at least thirty seconds between launchd spawn attempts. Codex connection failures separately
+use the persisted exponential fetch retry policy. Restart reacquires exclusive
+ownership, verifies account continuity before cached replay, and preserves explicit
+provider/path configuration, revisions, invalidation and retry restrictions. Atomic
+cache commits survive interrupted fetch/clear/publication; incomplete temporary files
+are ignored and corrupt ordering fails closed rather than resetting revisions.
+
+`usage service status --json` adds `processHealth`: `configured` for saved but unloaded
+configuration, `enabled` for a running answering service, `restarting` for a loaded
+restart-managed job waiting to run, `unavailable` for invalid executables or a running
+service whose endpoint cannot answer, and `stopped` after successful disable. These
+management diagnostics never add notification status codes. A busy fetch may make the
+endpoint temporarily unavailable; historical `ready` does not mean fresh/current usage.
+
+Disable removes startup configuration before booting out the job and its restart policy.
+Inspection, bootout and ownership waiting share a five-second deadline. Cancellation
+withholds late fetch/recovery results and closes the owned Codex connection. The owned
+child gets up to four seconds of graceful termination, then direct forced termination
+if necessary, reserving one second within the parent deadline. Launchd additionally
+retains job process-group cleanup; Foundation children need not share that group. Only owned processes
+are terminated. Committed cache/metadata remain. A failed bootout returns an error and
+may leave a loaded job running/restarting despite removal of future-login configuration;
+retry disable and inspect status. A pending ownership release reports `shutdown_pending`.
+
+The real BuildrAI receiver remains a separate integration task: validate untrusted
+messages, atomically retain widget data, show observations stale at fifteen minutes,
+and reconcile offline invalidation at the next available recovery exchange. See the
+[precise pending receiver checklist](docs/account-usage-wire.md#separate-buildrai-integration-checklist).
+Ordinary tests simulate service/process/provider adapters and notification publication;
+they do not install a real login service, use live credentials, probe delivery, or claim
+actual macOS receipt or guaranteed App Store approval.

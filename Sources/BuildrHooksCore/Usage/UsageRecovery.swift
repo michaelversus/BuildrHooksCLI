@@ -69,11 +69,13 @@ extension UsageRuntime {
     /// Identity reads never fetch limits, and are bounded independently of collection scheduling.
     func prepareRecovery(providers: [UsageProvider], publishInvalidation: Bool = true) {
         for provider in providers where !recovery.isVerified(provider) {
+            guard !isCancelled() else { return }
             guard var durable = try? store.load(), var state = durable.providers[provider.rawValue],
                   state.revision < UInt64.max - 3, state.snapshot != nil else { continue }
             let previousInvalidation = state.latestInvalidationRevision
             let adapter = additionalFetchers[provider] ?? fetcher
-            let identity = try? adapter.currentAccountIdentity(timeout: 5)
+            let identity = try? adapter.currentAccountIdentity(timeout: 5, isCancelled: isCancelled)
+            guard !isCancelled() else { return }
             if let identity {
                 let oldFingerprint = state.accountFingerprint
                 reconcileIdentity(identity, provider: provider, state: &state)

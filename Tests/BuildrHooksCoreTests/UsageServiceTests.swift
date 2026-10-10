@@ -8,20 +8,116 @@ private final class SimulatedLaunchctl: UsageServiceManaging, @unchecked Sendabl
     var running = false
     var starts = 0
     var stops = 0
+    var stopFailure = false
+    var onInspect: (TimeInterval) -> Void = { _ in }
+    var onStop: (TimeInterval) -> Void = { _ in }
+    var keepAlive = false
+    var throttle: TimeInterval = 0
+    var nextRestart: TimeInterval?
+    var lastStart: TimeInterval = 0
     func inspect(label _: String) throws -> UsageServiceProcessState {
         .init(loaded: loaded, running: running)
     }
 
-    func start(label _: String, plist _: URL) throws {
+    func start(label _: String, plist: URL) throws {
+        let configuration = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil)
+            as? [String: Any]
+        keepAlive = configuration?["KeepAlive"] as? Bool ?? false
+        throttle = configuration?["ThrottleInterval"] as? TimeInterval ?? 0
         loaded = true; running = true; starts += 1
     }
 
+    func crash(at time: TimeInterval) {
+        running = false
+        nextRestart = max(time, lastStart + throttle)
+    }
+
+    func advance(to time: TimeInterval) {
+        if loaded, keepAlive, !running, let nextRestart, time >= nextRestart {
+            running = true; starts += 1
+            lastStart = time
+            self.nextRestart = nil
+        }
+    }
+
     func stop(label _: String) throws {
+        if stopFailure {
+            throw UsageServiceError.launchctlUnavailable
+        }
         loaded = false; running = false; stops += 1
+    }
+
+    func inspect(label: String, timeout: TimeInterval) throws -> UsageServiceProcessState {
+        onInspect(timeout)
+        return try inspect(label: label)
+    }
+
+    func stop(label: String, timeout: TimeInterval) throws {
+        onStop(timeout)
+        try stop(label: label)
     }
 }
 
 struct UsageServiceTests {
+    @Test func crashLoopBackoffAndDisableNeverResurrectsJob() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var service = fixture.service
+        service.collectorAvailable = { fixture.manager.running }
+        _ = try service.enable(providers: ["codex"], cliPath: fixture.cli, codexPath: fixture.codex)
+        #expect(try service.status().processHealth == .enabled)
+        for time in stride(from: 0.0, to: 90, by: 30) {
+            fixture.manager.crash(at: time)
+            #expect(try service.status().processHealth == .restarting)
+            let starts = fixture.manager.starts
+            fixture.manager.advance(to: time + 29)
+            #expect(fixture.manager.starts == starts)
+            fixture.manager.advance(to: time + 30)
+            #expect(fixture.manager.starts == starts + 1)
+        }
+        service.collectorAvailable = { false }
+        #expect(try service.status().processHealth == .unavailable)
+        fixture.manager.crash(at: 90)
+        #expect(try service.disable().processHealth == .stopped)
+        let starts = fixture.manager.starts
+        fixture.manager.advance(to: 1000)
+        #expect(!fixture.manager.running && fixture.manager.starts == starts)
+        #expect(!FileManager.default.fileExists(atPath: service.plistURL.path))
+    }
+
+    @Test func failedBootoutRemovesStartupButReportsFailureAndLoadedJob() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try fixture.service.enable(providers: ["codex"], cliPath: fixture.cli, codexPath: fixture.codex)
+        fixture.manager.stopFailure = true
+        #expect(throws: UsageServiceError.launchctlUnavailable) { try fixture.service.disable() }
+        #expect(!FileManager.default.fileExists(atPath: fixture.service.plistURL.path))
+        let status = try fixture.service.status()
+        #expect(!status.configured && status.installed && status.processHealth == .unavailable)
+        fixture.manager.stopFailure = false
+        #expect(try fixture.service.disable().processHealth == .stopped)
+    }
+
+    @Test func disableSharesOneDeadlineAcrossInspectionBootoutAndOwnershipWait() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try fixture.service.enable(providers: ["codex"], cliPath: fixture.cli, codexPath: fixture.codex)
+        var time: TimeInterval = 0
+        fixture.manager.onInspect = { timeout in #expect(timeout == 5); time += 2 }
+        fixture.manager.onStop = { timeout in
+            #expect(timeout == 3)
+            #expect(!FileManager.default.fileExists(atPath: fixture.service.plistURL.path))
+            time += 2
+        }
+        var service = fixture.service
+        service.now = { time }
+        service.wait = { time += $0 }
+        service.collectorIdle = { false }
+        #expect(throws: UsageServiceError.shutdownPending) { try service.disable() }
+        #expect(abs(time - 5) < 0.00001)
+        #expect(!fixture.manager.loaded && !fixture.manager.running)
+    }
+
     private struct Fixture {
         let root: URL
         let service: UsageService
@@ -76,6 +172,10 @@ struct UsageServiceTests {
             cli, "usage", "watch", "--provider", "codex", "--codex-path", codex
         ])
         #expect(plist["RunAtLoad"] as? Bool == true)
+        #expect(plist["KeepAlive"] as? Bool == true)
+        #expect(plist["ThrottleInterval"] as? Int == 30)
+        #expect(plist["ExitTimeOut"] as? Int == 5)
+        #expect(plist["AbandonProcessGroup"] as? Bool == false)
         #expect(plist["Program"] == nil)
     }
 
@@ -152,7 +252,8 @@ struct UsageServiceTests {
         var provider = UsageProviderState()
         provider.revision = 7
         provider.latestInvalidationRevision = 4
-        provider.status = .init(provider: .codex, revision: 7, observedAt: 1, status: .ready)
+        provider.status = .init(provider: .codex, revision: 7, observedAt: 1, status: .ready,
+                                latestInvalidationRevision: 4)
         durable.providers["codex"] = provider
         try store.save(durable)
         let before = try Data(contentsOf: service.cacheURL)
@@ -205,6 +306,19 @@ struct UsageServiceTests {
         #expect(!manager.loaded && !FileManager.default.fileExists(atPath: service.plistURL.path))
     }
 
+    @Test func serviceCommandsParseAndHelpDescribeConsent() throws {
+        let command = try UsageServiceEnableCommand.parse([
+            "--provider", "codex", "--provider", "codex", "--json", "--codex-path", "/codex", "--cli-path", "/cli"
+        ])
+        #expect(command.provider == ["codex", "codex"] && command.json)
+        #expect(command.cliPath == "/cli" && command.codexPath == "/codex")
+        #expect(try UsageServiceDisableCommand.parse(["--json"]).json)
+        #expect(try UsageServiceStatusCommand.parse(["--json"]).json)
+        #expect(UsageServiceEnableCommand.helpMessage().contains("Opt in"))
+    }
+}
+
+struct UsageServiceCoordinationTests {
     @Test func privatePingDoesNotFetchOrWriteAndDuplicateOwnerIsRejected() throws {
         let cache = URL(fileURLWithPath: "/tmp/s-\(UUID().uuidString)/state.json")
         defer { try? FileManager.default.removeItem(at: cache.deletingLastPathComponent()) }
@@ -230,16 +344,5 @@ struct UsageServiceTests {
         #expect(capture.output == ["true"])
         #expect(provider.count == 0 && !FileManager.default.fileExists(atPath: cache.path))
         #expect(try !UsageCoordination(cacheURL: cache).acquire())
-    }
-
-    @Test func serviceCommandsParseAndHelpDescribeConsent() throws {
-        let command = try UsageServiceEnableCommand.parse([
-            "--provider", "codex", "--provider", "codex", "--json", "--codex-path", "/codex", "--cli-path", "/cli"
-        ])
-        #expect(command.provider == ["codex", "codex"] && command.json)
-        #expect(command.cliPath == "/cli" && command.codexPath == "/codex")
-        #expect(try UsageServiceDisableCommand.parse(["--json"]).json)
-        #expect(try UsageServiceStatusCommand.parse(["--json"]).json)
-        #expect(UsageServiceEnableCommand.helpMessage().contains("Opt in"))
     }
 }

@@ -14,6 +14,18 @@ public protocol UsageServiceManaging: Sendable {
     func inspect(label: String) throws -> UsageServiceProcessState
     func start(label: String, plist: URL) throws
     func stop(label: String) throws
+    func inspect(label: String, timeout: TimeInterval) throws -> UsageServiceProcessState
+    func stop(label: String, timeout: TimeInterval) throws
+}
+
+public extension UsageServiceManaging {
+    func inspect(label: String, timeout _: TimeInterval) throws -> UsageServiceProcessState {
+        try inspect(label: label)
+    }
+
+    func stop(label: String, timeout _: TimeInterval) throws {
+        try stop(label: label)
+    }
 }
 
 public struct UsageLaunchctl: UsageServiceManaging {
@@ -23,7 +35,11 @@ public struct UsageLaunchctl: UsageServiceManaging {
     }
 
     public func inspect(label: String) throws -> UsageServiceProcessState {
-        let (code, output) = try run(["print", "\(domain)/\(label)"])
+        try inspect(label: label, timeout: 5)
+    }
+
+    public func inspect(label: String, timeout: TimeInterval) throws -> UsageServiceProcessState {
+        let (code, output) = try run(["print", "\(domain)/\(label)"], timeout: timeout)
         if code == 113 {
             return .init(loaded: false, running: false)
         }
@@ -38,13 +54,19 @@ public struct UsageLaunchctl: UsageServiceManaging {
     }
 
     public func stop(label: String) throws {
-        guard try inspect(label: label).loaded else { return }
-        guard try run(["bootout", "\(domain)/\(label)"]).0 == 0 else {
+        try stop(label: label, timeout: 5)
+    }
+
+    public func stop(label: String, timeout: TimeInterval) throws {
+        let code = try run(["bootout", "\(domain)/\(label)"], timeout: timeout).0
+        guard code == 0 || code == 113 else {
             throw UsageServiceError.launchctlUnavailable
         }
     }
 
-    private func run(_ arguments: [String]) throws -> (Int32, String) {
+    private func run(_ arguments: [String], timeout: TimeInterval = 5) throws -> (Int32, String) {
+        guard timeout > 0 else { throw UsageServiceError.shutdownPending }
+        let deadline = ProcessInfo.processInfo.systemUptime + min(5, timeout)
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -52,7 +74,6 @@ public struct UsageLaunchctl: UsageServiceManaging {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { throw UsageServiceError.launchctlUnavailable }
-        let deadline = ProcessInfo.processInfo.systemUptime + 5
         // Drain concurrently so launchctl print cannot block on a full pipe.
         let reader = ServiceOutputReader(pipe: output)
         reader.start()
@@ -60,23 +81,14 @@ public struct UsageLaunchctl: UsageServiceManaging {
             Thread.sleep(forTimeInterval: 0.01)
         }
         if process.isRunning {
-            process.terminate()
-            let terminationDeadline = ProcessInfo.processInfo.systemUptime + 0.2
-            while process.isRunning, ProcessInfo.processInfo.systemUptime < terminationDeadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            if process.isRunning {
-                Darwin.kill(process.processIdentifier, SIGKILL)
-            }
-            let reapDeadline = ProcessInfo.processInfo.systemUptime + 1
-            while process.isRunning, ProcessInfo.processInfo.systemUptime < reapDeadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
+            Darwin.kill(process.processIdentifier, SIGKILL)
             // Foundation owns/reaps this child; only our launchctl invocation is signalled.
-            _ = reader.finish()
             throw UsageServiceError.launchctlUnavailable
         }
-        return (process.terminationStatus, reader.finish())
+        guard let result = reader.finish(timeout: max(0, deadline - ProcessInfo.processInfo.systemUptime)) else {
+            throw UsageServiceError.launchctlUnavailable
+        }
+        return (process.terminationStatus, result)
     }
 }
 
@@ -98,8 +110,8 @@ private final class ServiceOutputReader: @unchecked Sendable {
         }
     }
 
-    func finish() -> String {
-        guard group.wait(timeout: .now() + 1) == .success else { return "" }
+    func finish(timeout: TimeInterval) -> String? {
+        guard group.wait(timeout: .now() + timeout) == .success else { return nil }
         return lock.withLock { String(data: data, encoding: .utf8) ?? "" }
     }
 }
@@ -135,8 +147,14 @@ public struct UsageServiceStatus: Codable, Sendable {
     public let processRunning: Bool
     public let collectorAvailable: Bool
     public let executablesValid: Bool
+    public let processHealth: UsageServiceHealth
     /// Historical, committed status; it does not establish current process health.
     public let retainedCollectionStatus: [UsageCollectionStatus]
+}
+
+/// Service diagnostics only; these are not collection notification status codes.
+public enum UsageServiceHealth: String, Codable, Sendable {
+    case configured, enabled, restarting, unavailable, stopped
 }
 
 public struct UsageService {
@@ -147,6 +165,7 @@ public struct UsageService {
     public var collectorAvailable: () -> Bool
     public var collectorIdle: () throws -> Bool
     public var wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    public var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 cacheURL: URL = UsageFileStateStore().fileURL,
@@ -163,14 +182,35 @@ public struct UsageService {
     }
 
     public func status() throws -> UsageServiceStatus {
+        try status(process: nil)
+    }
+
+    private func status(
+        process knownProcess: UsageServiceProcessState?, probe: Bool = true
+    ) throws -> UsageServiceStatus {
         let configuration = try readConfiguration()
-        let process = try manager.inspect(label: Self.label)
+        let process = try knownProcess ?? manager.inspect(label: Self.label)
         let state = try UsageFileStateStore(fileURL: cacheURL).load()
+        let available = probe && collectorAvailable()
+        let valid = configuration.map { validExecutable($0[0]) && validExecutable($0[6]) } ?? false
+        let health: UsageServiceHealth
+        if configuration == nil, !process.loaded {
+            health = .stopped
+        } else if !valid || (process.running && !available) {
+            health = .unavailable
+        } else if !process.loaded {
+            health = .configured
+        } else if !process.running {
+            let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: plistURL), format: nil)
+                as? [String: Any]
+            health = plist?["KeepAlive"] as? Bool == true ? .restarting : .stopped
+        } else {
+            health = .enabled
+        }
         return UsageServiceStatus(
             configured: configuration != nil, installed: process.loaded,
             enabledProviders: configuration == nil ? [] : [.codex], processRunning: process.running,
-            collectorAvailable: collectorAvailable(),
-            executablesValid: configuration.map { validExecutable($0[0]) && validExecutable($0[6]) } ?? false,
+            collectorAvailable: available, executablesValid: valid, processHealth: health,
             retainedCollectionStatus: state.providers.values.compactMap(\.status).sorted {
                 $0.provider.rawValue < $1.provider.rawValue
             }
@@ -200,7 +240,9 @@ public struct UsageService {
             }
             let arguments = [cli, "usage", "watch", "--provider", "codex", "--codex-path", codex]
             let plist: [String: Any] = ["Label": Self.label, "ProgramArguments": arguments,
-                                        "RunAtLoad": true, "ExitTimeOut": 5]
+                                        "RunAtLoad": true, "ExitTimeOut": 5,
+                                        "KeepAlive": true, "ThrottleInterval": 30,
+                                        "AbandonProcessGroup": false]
             try FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
@@ -213,26 +255,31 @@ public struct UsageService {
 
     public func disable() throws -> UsageServiceStatus {
         try withManagementLock {
-            let process = try manager.inspect(label: Self.label)
-            if process.loaded {
-                try manager.stop(label: Self.label)
-            }
+            let deadline = now() + 5
+            let process = try manager.inspect(label: Self.label, timeout: max(0, deadline - now()))
+            // Remove automatic startup before requesting shutdown. bootout removes the
+            // job (including KeepAlive), rather than signalling a job launchd will restart.
             if FileManager.default.fileExists(atPath: plistURL.path) {
                 try FileManager.default.removeItem(at: plistURL)
             }
-            if process.running {
-                try awaitIdle()
+            if process.loaded {
+                try manager.stop(label: Self.label, timeout: max(0, deadline - now()))
             }
-            return try status()
+            if process.running {
+                try awaitIdle(deadline: deadline)
+            }
+            return try status(process: .init(loaded: false, running: false), probe: deadline - now() >= 0.3)
         }
     }
 
-    private func awaitIdle() throws {
+    private func awaitIdle(deadline: TimeInterval? = nil) throws {
+        let deadline = deadline ?? (now() + 5)
         for _ in 0 ..< 50 {
             if try collectorIdle() {
                 return
             }
-            wait(0.1)
+            guard now() < deadline else { throw UsageServiceError.shutdownPending }
+            wait(min(0.1, deadline - now()))
         }
         throw UsageServiceError.shutdownPending
     }

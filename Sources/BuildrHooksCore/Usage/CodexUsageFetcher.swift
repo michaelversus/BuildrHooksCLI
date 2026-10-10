@@ -22,6 +22,13 @@ public final class CodexUsageFetcher: UsageFetching, @unchecked Sendable {
     }
 
     public func currentAccountIdentity(timeout: TimeInterval) throws -> String? {
+        try currentAccountIdentity(timeout: timeout, isCancelled: { false })
+    }
+
+    public func currentAccountIdentity(
+        timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool
+    ) throws -> String? {
+        guard !isCancelled() else { throw UsageFetchError.cancelled }
         if session == nil {
             session = try CodexUsageSession(executable: resolveExecutable())
         }
@@ -31,7 +38,7 @@ public final class CodexUsageFetcher: UsageFetching, @unchecked Sendable {
             }
         }
         do {
-            return try session?.currentAccountIdentity(timeout: timeout)
+            return try session?.currentAccountIdentity(timeout: timeout, isCancelled: isCancelled)
         } catch {
             close()
             throw error
@@ -137,9 +144,9 @@ private final class CodexUsageSession {
         try request(method: "account/read", params: ["refreshToken": false])
     }
 
-    func currentAccountIdentity(timeout: TimeInterval) throws -> String? {
+    func currentAccountIdentity(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> String? {
         deadline = ProcessInfo.processInfo.systemUptime + min(5, max(0, timeout))
-        isCancelled = { false }
+        self.isCancelled = isCancelled
         receivedBytes = 0
         try initialize()
         let response = try readAccount()
@@ -288,17 +295,14 @@ private final class CodexUsageSession {
     }
 
     func shutdown() {
-        try? input.fileHandleForWriting.close()
-        if process.isRunning {
-            process.terminate()
-            let stopDeadline = ProcessInfo.processInfo.systemUptime + 0.2
-            while process.isRunning, ProcessInfo.processInfo.systemUptime < stopDeadline {
-                usleep(10000)
-            }
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-        }
+        // Leave one second inside launchd's five-second parent deadline for direct
+        // child cleanup. Foundation children need not share the launchd job's group.
+        UsageOwnedProcessShutdown(
+            running: { self.process.isRunning },
+            closeInput: { try? self.input.fileHandleForWriting.close() },
+            requestTermination: { self.process.terminate() },
+            forceTermination: { kill(self.process.processIdentifier, SIGKILL) }
+        ).stop(timeout: 4)
         try? output.fileHandleForReading.close()
     }
 }

@@ -9,6 +9,7 @@ public extension UsageRuntime {
         }
         guard !isCancelled() else { return result(provider, .cancelled) }
         let cleared: UsageCollectionStatus
+        var expectedInvalidation: UInt64?
         do {
             var durable = try store.load()
             var state = durable.providers[provider.rawValue] ?? .init()
@@ -22,8 +23,11 @@ public extension UsageRuntime {
             cleared = status(code, provider: provider, state: state, retryAt: state.status?.retryAt)
             state.status = cleared
             durable.providers[provider.rawValue] = state
+            expectedInvalidation = state.latestInvalidationRevision
             try store.save(durable)
-        } catch { return result(provider, .persistenceFailure) }
+        } catch {
+            return clearPersistenceFailure(provider: provider, expectedInvalidation: expectedInvalidation)
+        }
         recovery.unverify(provider)
         do {
             let attempted = try publish(snapshot: nil, status: cleared)
@@ -36,5 +40,19 @@ public extension UsageRuntime {
             return UsageRefreshResult(provider: provider, outcome: .publicationFailure, retryAt: nil,
                                       freshSnapshot: false, publicationAttempted: false, localCleared: true)
         }
+    }
+
+    private func clearPersistenceFailure(
+        provider: UsageProvider, expectedInvalidation: UInt64?
+    ) -> UsageRefreshResult {
+        // Rename can succeed before the durability acknowledgement fails. Read-back
+        // confirms local visibility only; never publish without a successful save.
+        let state = try? store.load().providers[provider.rawValue]
+        let localCleared = expectedInvalidation.map {
+            state?.latestInvalidationRevision == $0 && state?.snapshot == nil
+        } ?? false
+        recovery.unverify(provider)
+        return UsageRefreshResult(provider: provider, outcome: .persistenceFailure, retryAt: nil,
+                                  freshSnapshot: false, publicationAttempted: false, localCleared: localCleared)
     }
 }

@@ -11,12 +11,20 @@ public protocol UsageFetching: Sendable {
     func fetch(timeout: TimeInterval) throws -> Data
     func fetch(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> Data
     func currentAccountIdentity(timeout: TimeInterval) throws -> String?
+    func currentAccountIdentity(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> String?
     func beginWatch()
     func events() throws -> [UsageWatchTrigger]
     func close()
 }
 
 public extension UsageFetching {
+    func currentAccountIdentity(timeout: TimeInterval, isCancelled: @escaping @Sendable () -> Bool) throws -> String? {
+        guard !isCancelled() else { throw UsageFetchError.cancelled }
+        let identity = try currentAccountIdentity(timeout: timeout)
+        guard !isCancelled() else { throw UsageFetchError.cancelled }
+        return identity
+    }
+
     func fetch(timeout: TimeInterval, isCancelled _: @escaping @Sendable () -> Bool) throws -> Data {
         try fetch(timeout: timeout)
     }
@@ -261,6 +269,7 @@ public struct UsageRuntime: Sendable {
         state.status = status(.pending, provider: provider, state: state)
         durable.providers[provider.rawValue] = state
         do { try store.save(durable) } catch { return result(provider, .persistenceFailure) }
+        guard !isCancelled() else { return result(provider, .cancelled) }
         publishPendingStatus(state.status)
         let fetched = fetch(provider: provider, revision: state.revision + 1)
         guard !isCancelled(), fetched.outcome != .cancelled else { return result(provider, .cancelled) }
@@ -286,6 +295,7 @@ public struct UsageRuntime: Sendable {
     private func fetch(provider: UsageProvider, revision: UInt64) -> UsageFetchResult {
         var identity: String?
         do {
+            guard !isCancelled() else { throw UsageFetchError.cancelled }
             let selected = additionalFetchers[provider] ?? fetcher
             let data = try selected.fetch(timeout: 30, isCancelled: isCancelled)
             identity = UsageAccountIdentity.fullObservation(data)
@@ -298,26 +308,7 @@ public struct UsageRuntime: Sendable {
             _ = try UsageWire().encode(snapshot, now: now())
             return UsageFetchResult(outcome: .refreshed, retryAt: nil, snapshot: snapshot, identity: identity)
         } catch let error as UsageFetchError {
-            switch error {
-            case .authenticationRequired:
-                return UsageFetchResult(
-                    outcome: .authenticationRequired, retryAt: nil, snapshot: nil, identity: identity
-                )
-            case .temporaryFailure:
-                return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil, identity: identity)
-            case .timeout:
-                return UsageFetchResult(outcome: .timeout, retryAt: nil, snapshot: nil, identity: identity)
-            case .unavailable:
-                return UsageFetchResult(outcome: .usageUnavailable, retryAt: nil, snapshot: nil, identity: identity)
-            case let .throttled(retryAt):
-                return UsageFetchResult(outcome: .throttled, retryAt: retryAt, snapshot: nil, identity: identity)
-            case .cancelled:
-                return UsageFetchResult(outcome: .cancelled, retryAt: nil, snapshot: nil, identity: identity)
-            case .executableUnavailable:
-                return UsageFetchResult(
-                    outcome: .executableUnavailable, retryAt: nil, snapshot: nil, identity: identity
-                )
-            }
+            return usageFetchResult(for: error, identity: identity)
         } catch {
             return UsageFetchResult(outcome: .temporaryFailure, retryAt: nil, snapshot: nil, identity: identity)
         }
@@ -328,11 +319,13 @@ public struct UsageRuntime: Sendable {
         let wire = UsageWire()
         do {
             if let snapshot {
+                guard !isCancelled() else { throw UsageFetchError.cancelled }
                 let payload = try wire.encode(snapshot, now: now())
                 attempted = true
                 try notifier.post(name: Self.snapshotNotification, payload: payload)
             }
             if let status {
+                guard !isCancelled() else { throw UsageFetchError.cancelled }
                 let payload = try wire.encode(status, now: now())
                 attempted = true
                 try notifier.post(name: Self.statusNotification, payload: payload)
@@ -363,4 +356,33 @@ public struct UsageRuntime: Sendable {
         UsageRefreshResult(provider: provider, outcome: outcome, retryAt: retryAt,
                            freshSnapshot: fresh, publicationAttempted: attempted)
     }
+}
+
+private func usageFetchResult(for error: UsageFetchError, identity: String?) -> UsageFetchResult {
+    let outcome: UsageOutcome
+    let retryAt: Int64?
+    switch error {
+    case .authenticationRequired:
+        outcome = .authenticationRequired
+        retryAt = nil
+    case .temporaryFailure:
+        outcome = .temporaryFailure
+        retryAt = nil
+    case .timeout:
+        outcome = .timeout
+        retryAt = nil
+    case .unavailable:
+        outcome = .usageUnavailable
+        retryAt = nil
+    case let .throttled(value):
+        outcome = .throttled
+        retryAt = value
+    case .cancelled:
+        outcome = .cancelled
+        retryAt = nil
+    case .executableUnavailable:
+        outcome = .executableUnavailable
+        retryAt = nil
+    }
+    return UsageFetchResult(outcome: outcome, retryAt: retryAt, snapshot: nil, identity: identity)
 }
