@@ -149,7 +149,7 @@ struct UsageCommandExecution {
 
     init(codexPath: String?) {
         let lifecycle = UsageWatchLifecycle()
-        var runtime = UsageRuntime(fetcher: CodexUsageFetcher(executablePath: codexPath))
+        var runtime = UsageRuntime(fetcher: CodexUsageFetcher(executablePath: codexPath), cliVersion: version)
         let state = lifecycle.state
         runtime.isCancelled = { state.cancelled }
         self.init(runtime: runtime, coordination: UsageCoordination())

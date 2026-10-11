@@ -17,14 +17,31 @@ labels, plan names or credits are included. No BuildrAI launch or App Group writ
 `ai.buildrai.account-usage-updated` contains:
 
 ```json
-{"schemaVersion":1,"provider":"codex","revision":2,"collectedAt":1000000,"windows":[{"limitCode":"codex","role":"primary","usedPercent":125,"durationMinutes":17,"resetsAt":2000000}]}
+{"schemaVersion":1,"cliVersion":"1.2.7","provider":"codex","revision":2,"collectedAt":1000000,"windows":[{"limitCode":"codex","role":"primary","usedPercent":125,"durationMinutes":17,"resetsAt":2000000}]}
 ```
 
 `ai.buildrai.account-usage-status-updated` contains:
 
 ```json
-{"schemaVersion":1,"provider":"codex","revision":3,"observedAt":1000000,"status":"ready","latestInvalidationRevision":0}
+{"schemaVersion":1,"cliVersion":"1.2.7","provider":"codex","revision":3,"observedAt":1000000,"status":"ready","latestInvalidationRevision":0}
 ```
+
+Both notifications optionally include `cliVersion` as a JSON String: the semantic
+version of the currently publishing collector/executable, from the same build-time
+source as `buildrhooks --version`. It is bounded to 128 UTF-8 bytes and uses SemVer
+`major.minor.patch` with optional prerelease/build identifiers. Malformed present
+versions fail wire validation. Absence (or JSON null) means unknown; receivers must
+not substitute a repository hook marker or infer observation freshness from it.
+Older v1 consumers ignore this additive field; pre-field retained caches remain readable.
+
+The publisher stamps outgoing copies for refresh, watch (including pending/failure
+status), clear and recovery replay. Retained observations are not rewritten. A replay
+may carry a newer publisher version with the same revision, original `collectedAt` or
+`observedAt`, and latest invalidation marker. This metadata does not establish account
+continuity or change ordering, scheduling, request semantics or the schema version.
+Receivers may inspect sender metadata independently of observation acceptance; equal
+revisions still must not be treated as fresh usage. An absent version is displayed as
+unknown. The payload-size and privacy rules still apply to the complete message.
 
 All time fields (`collectedAt`, `observedAt`, `resetsAt`, and optional `retryAt`) are
 Unix milliseconds; `durationMinutes` is the provider's actual integer duration.

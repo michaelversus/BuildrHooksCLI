@@ -161,7 +161,7 @@ private final class CodexUsageSession {
         guard ProcessInfo.processInfo.systemUptime < deadline else { throw UsageFetchError.timeout }
         var data = try JSONSerialization.data(withJSONObject: message)
         data.append(10)
-        do { try input.fileHandleForWriting.write(contentsOf: data) } catch { throw UsageFetchError.temporaryFailure }
+        try UsageOwnedProcessInput.write(data, to: input.fileHandleForWriting)
     }
 
     private func request(method: String, params: Any) throws -> [String: Any] {

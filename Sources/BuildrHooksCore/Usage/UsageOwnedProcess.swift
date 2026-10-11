@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Closures are bound to a child created by this collector, never a discovered PID.
@@ -21,5 +22,17 @@ struct UsageOwnedProcessShutdown {
         if running() {
             forceTermination()
         }
+    }
+}
+
+/// Writes only to the input pipe of a child owned by this collector.
+enum UsageOwnedProcessInput {
+    static func write(_ data: Data, to handle: FileHandle) throws {
+        // Protect only this descriptor: a closed child pipe must return EPIPE, not
+        // terminate the host. A process-wide SIGPIPE handler would affect other owners.
+        guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            throw UsageFetchError.temporaryFailure
+        }
+        do { try handle.write(contentsOf: data) } catch { throw UsageFetchError.temporaryFailure }
     }
 }

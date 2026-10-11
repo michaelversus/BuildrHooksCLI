@@ -1,4 +1,5 @@
 @testable import BuildrHooksCore
+import Darwin
 import Foundation
 import Testing
 
@@ -10,6 +11,26 @@ struct CodexUsageFetcherTests {
         try Data(("#!/bin/sh\n" + script).utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
         return file
+    }
+
+    @Test func ownedInputWriteSuppressesSIGPIPEOnItsDescriptor() throws {
+        let pipe = Pipe()
+        defer {
+            try? pipe.fileHandleForReading.close()
+            try? pipe.fileHandleForWriting.close()
+        }
+        #expect(fcntl(pipe.fileHandleForWriting.fileDescriptor, F_GETNOSIGPIPE) == 0)
+        try UsageOwnedProcessInput.write(Data([10]), to: pipe.fileHandleForWriting)
+        #expect(fcntl(pipe.fileHandleForWriting.fileDescriptor, F_GETNOSIGPIPE) == 1)
+        #expect(try pipe.fileHandleForReading.read(upToCount: 1) == Data([10]))
+        // A disconnected child must produce a sanitized error rather than terminating the parent.
+        try pipe.fileHandleForReading.close()
+        do {
+            try UsageOwnedProcessInput.write(Data([10]), to: pipe.fileHandleForWriting)
+            Issue.record("Expected disconnected input failure")
+        } catch UsageFetchError.temporaryFailure {} catch {
+            Issue.record("Unexpected unsanitized input failure")
+        }
     }
 
     @Test func initializationAndFullReadUseOnlySupportedMethods() throws {
