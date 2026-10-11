@@ -3,6 +3,7 @@ import ArgumentParser
 import BuildrHooksCore
 import Darwin
 import Foundation
+import Synchronization
 
 struct UsageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -149,19 +150,17 @@ struct UsageCommandExecution {
     init(codexPath: String?) {
         let lifecycle = UsageWatchLifecycle()
         var runtime = UsageRuntime(fetcher: CodexUsageFetcher(executablePath: codexPath))
-        runtime.isCancelled = { lifecycle.cancelled }
+        let state = lifecycle.state
+        runtime.isCancelled = { state.cancelled }
         self.init(runtime: runtime, coordination: UsageCoordination())
-        triggers = { lifecycle.takeTriggers() }
+        triggers = { state.takeTriggers() }
         wait = { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval($0)) }
         close = { lifecycle.close() }
     }
 }
 
-final class UsageWatchLifecycle: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stopped = false
-    private var woke = false
-    private var recoveryRequested = false
+final class UsageWatchLifecycle {
+    let state = UsageWatchState()
     private var recoveryObserver: NSObjectProtocol?
     private var signals: [DispatchSourceSignal] = []
     private var wakeObserver: NSObjectProtocol?
@@ -169,7 +168,7 @@ final class UsageWatchLifecycle: @unchecked Sendable {
     private let recoveryCenter: NotificationCenter
     private let wakeCenter: NotificationCenter
     var cancelled: Bool {
-        lock.withLock { stopped }
+        state.cancelled
     }
 
     init(
@@ -180,39 +179,27 @@ final class UsageWatchLifecycle: @unchecked Sendable {
         self.signalNumbers = signalNumbers
         self.recoveryCenter = recoveryCenter
         self.wakeCenter = wakeCenter
+        let state = state
         for number in signalNumbers {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-            source.setEventHandler { [weak self] in
-                guard let self else { return }
-                lock.withLock { self.stopped = true }
-            }
+            source.setEventHandler { state.stop() }
             source.resume()
             signals.append(source)
         }
         recoveryObserver = recoveryCenter.addObserver(
             forName: Notification.Name(UsageRuntime.requestNotification), object: nil, queue: nil
-        ) { [weak self] notification in
-            guard notification.userInfo == nil, let self else { return }
-            lock.withLock { self.recoveryRequested = true }
+        ) { notification in
+            guard notification.userInfo == nil else { return }
+            state.requestRecovery()
         }
         wakeObserver = wakeCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            lock.withLock { self.woke = true }
-        }
+        ) { _ in state.wake() }
     }
 
     func takeTriggers() -> [UsageWatchTrigger] {
-        lock.withLock {
-            defer { woke = false; recoveryRequested = false }
-            var triggers: [UsageWatchTrigger] = woke ? [.wake] : []
-            if recoveryRequested {
-                triggers.append(.recoveryRequested)
-            }
-            return triggers
-        }
+        state.takeTriggers()
     }
 
     func close() {
@@ -225,6 +212,44 @@ final class UsageWatchLifecycle: @unchecked Sendable {
         signals.forEach { $0.cancel() }
         for number in signalNumbers {
             signal(number, SIG_DFL)
+        }
+    }
+}
+
+/// Only this Sendable state crosses signal and notification callback boundaries.
+/// Observer tokens and signal-source lifecycle stay with the synchronous command owner.
+final class UsageWatchState: Sendable {
+    private struct Flags {
+        var stopped = false
+        var woke = false
+        var recoveryRequested = false
+    }
+
+    private let flags = Mutex(Flags())
+    var cancelled: Bool {
+        flags.withLock { $0.stopped }
+    }
+
+    func stop() {
+        flags.withLock { $0.stopped = true }
+    }
+
+    func wake() {
+        flags.withLock { $0.woke = true }
+    }
+
+    func requestRecovery() {
+        flags.withLock { $0.recoveryRequested = true }
+    }
+
+    func takeTriggers() -> [UsageWatchTrigger] {
+        flags.withLock {
+            defer { $0.woke = false; $0.recoveryRequested = false }
+            var triggers: [UsageWatchTrigger] = $0.woke ? [.wake] : []
+            if $0.recoveryRequested {
+                triggers.append(.recoveryRequested)
+            }
+            return triggers
         }
     }
 }

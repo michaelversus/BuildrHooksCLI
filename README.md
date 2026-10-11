@@ -7,6 +7,8 @@
 
 `BuildrHooksCLI` is a macOS Swift command-line tool that relays Codex and Claude Code hook events into BuildrAI's repository-local raw hook queue.
 
+Requires macOS 26 or later, matching BuildrAI. Building from source requires Swift 6.2 or later.
+
 It reads JSON from standard input, normalizes the payload into a queue event, writes that event under:
 
 `<repo>/.buildrai/inbox/raw-hooks`

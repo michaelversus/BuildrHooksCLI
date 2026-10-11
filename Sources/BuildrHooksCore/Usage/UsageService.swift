@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Synchronization
 
 public struct UsageServiceProcessState: Sendable {
     public var loaded: Bool
@@ -96,11 +97,10 @@ public struct UsageLaunchctl: UsageServiceManaging {
     }
 }
 
-private final class ServiceOutputReader: @unchecked Sendable {
+private final class ServiceOutputReader: Sendable {
     let pipe: Pipe
     let group = DispatchGroup()
-    let lock = NSLock()
-    var data = Data()
+    let data = Mutex(Data())
     init(pipe: Pipe) {
         self.pipe = pipe
     }
@@ -109,14 +109,14 @@ private final class ServiceOutputReader: @unchecked Sendable {
         group.enter()
         DispatchQueue.global().async { [self] in
             let result = pipe.fileHandleForReading.readDataToEndOfFile()
-            lock.withLock { data = result }
+            data.withLock { $0 = result }
             group.leave()
         }
     }
 
     func finish(timeout: TimeInterval) -> String? {
         guard group.wait(timeout: .now() + timeout) == .success else { return nil }
-        return lock.withLock { String(data: data, encoding: .utf8) ?? "" }
+        return data.withLock { String(data: $0, encoding: .utf8) ?? "" }
     }
 }
 

@@ -1,6 +1,6 @@
 # BuildrHooksCLI Architecture
 
-BuildrHooksCLI owns two independent paths in the same Swift 6.2/macOS 14 package:
+BuildrHooksCLI owns two independent paths in the same Swift 6.2/macOS 26 package:
 repository-local Codex/Claude hook relay and explicitly enabled account usage
 collection. BuildrAI owns project selection, hook configuration, notification receipt,
 widget storage, and display. The CLI never writes BuildrAI's App Group.
@@ -102,6 +102,11 @@ connection loss and restart. Authentication failures wait for an auth event or s
 check. Missing limits report unavailable usage, retaining verified older observations.
 
 `UsageRuntime` is the primary test seam for collection, triggers, recovery and clear.
+Recovery verification/reply throttling, lifecycle callback flags, and service output
+buffers use `Synchronization.Mutex` with checked `Sendable` state. Signal sources and
+notification observer tokens stay with the synchronous command owner; callbacks
+capture only the protected lifecycle state. The collector loop and process I/O remain
+synchronous, including their cancellation and shutdown deadlines.
 Normalized windows preserve actual bucket codes, roles, percentages, duration/reset
 when known; missing data remains absent, values above 100 remain valid and credits are
 excluded. Snapshot/status streams remain separate. The shared schema, redaction and

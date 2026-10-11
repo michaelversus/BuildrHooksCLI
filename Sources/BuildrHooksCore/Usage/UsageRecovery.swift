@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 
 /// Identity exists transiently at the provider boundary, never in the wire contract.
 enum UsageAccountIdentity {
@@ -15,29 +16,33 @@ enum UsageAccountIdentity {
     }
 }
 
-/// State is serialized by the synchronous runtime owner; the lock also protects injected callers.
-final class UsageRecoverySession: @unchecked Sendable {
-    private let lock = NSLock()
-    private var verified = Set<UsageProvider>()
-    private var lastReply: Int64?
+/// The synchronous collector and callback bridges access recovery state through one mutex.
+final class UsageRecoverySession: Sendable {
+    private struct State {
+        var verified = Set<UsageProvider>()
+        var lastReply: Int64?
+    }
+
+    private let state = Mutex(State())
+
     func verify(_ provider: UsageProvider) {
-        lock.withLock { _ = verified.insert(provider) }
+        state.withLock { _ = $0.verified.insert(provider) }
     }
 
     func unverify(_ provider: UsageProvider) {
-        lock.withLock { _ = verified.remove(provider) }
+        state.withLock { _ = $0.verified.remove(provider) }
     }
 
     func isVerified(_ provider: UsageProvider) -> Bool {
-        lock.withLock { verified.contains(provider) }
+        state.withLock { $0.verified.contains(provider) }
     }
 
     func beginReply(at time: Int64) -> Bool {
-        lock.withLock {
-            if let lastReply, time < lastReply + 1000 {
+        state.withLock {
+            if let lastReply = $0.lastReply, time < lastReply + 1000 {
                 return false
             }
-            lastReply = time
+            $0.lastReply = time
             return true
         }
     }
