@@ -69,6 +69,110 @@ private final class RecoveryFixture: UsageFetching, UsageStateStoring, UsageNoti
     }
 }
 
+struct UsagePublisherVersionTests {
+    @Test func currentPublisherVersionCoversRefreshAndPreFieldRecovery() throws {
+        let fixture = RecoveryFixture()
+        var publisher = fixture.runtime()
+        publisher = UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "2.0.0",
+                                 now: publisher.now, output: { _ in })
+        #expect(publisher.refresh().outcome == .refreshed)
+        let original = fixture.durable
+        #expect(original.providers["codex"]?.snapshot?.cliVersion == nil)
+        #expect(original.providers["codex"]?.status?.cliVersion == nil)
+        #expect(fixture.messages.count == 3) // Pending, snapshot, ready.
+        for message in fixture.messages {
+            let json = try #require(JSONSerialization.jsonObject(with: Data(message.1.utf8)) as? [String: Any])
+            #expect(json["cliVersion"] as? String == "2.0.0")
+        }
+        // Simulate loading a pre-field cache with the current publisher after an upgrade.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let cache = try encoder.encode(original)
+        #expect(try !#require(String(bytes: cache, encoding: .utf8)).contains("cliVersion"))
+        fixture.durable = try JSONDecoder().decode(UsageDurableState.self, from: cache)
+        fixture.messages = []
+        let restarted = UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "2.1.0",
+                                     now: publisher.now, output: { _ in })
+        restarted.recover(providers: [.codex])
+        #expect(fixture.fetchCount == 1)
+        let now = publisher.now()
+        var snapshot = try UsageWire().decodeSnapshot(#require(fixture.snapshots.first), now: now)
+        var status = try UsageWire().decodeStatus(#require(fixture.statuses.first), now: now)
+        #expect(snapshot.cliVersion == "2.1.0" && status.cliVersion == "2.1.0")
+        snapshot.cliVersion = nil
+        status.cliVersion = nil
+        #expect(snapshot == original.providers["codex"]?.snapshot)
+        #expect(status == original.providers["codex"]?.status)
+        #expect(try encoder.encode(fixture.durable) == cache)
+    }
+
+    @Test func freshWatchPublicationCarriesCurrentVersionWithoutPersistingIt() throws {
+        let fixture = RecoveryFixture()
+        var runtime = UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "2.1.0",
+                                   now: { Date(timeIntervalSince1970: Double(fixture.time) / 1000) }, output: { _ in })
+        runtime.isCancelled = { fixture.stopped }
+        runtime.watch(providers: [.codex], wait: { _ in fixture.stopped = true })
+        #expect(fixture.fetchCount == 1)
+        #expect(fixture.snapshots.count == 1)
+        let snapshot = try UsageWire().decodeSnapshot(#require(fixture.snapshots.first), now: runtime.now())
+        #expect(snapshot.cliVersion == "2.1.0")
+        #expect(snapshot.collectedAt == fixture.time)
+        #expect(snapshot.revision == fixture.durable.providers["codex"]?.snapshot?.revision)
+        for payload in fixture.statuses {
+            #expect(try UsageWire().decodeStatus(payload, now: runtime.now()).cliVersion == "2.1.0")
+        }
+        #expect(fixture.durable.providers["codex"]?.snapshot?.cliVersion == nil)
+        #expect(fixture.durable.providers["codex"]?.status?.cliVersion == nil)
+    }
+
+    @Test func watchFailureAndClearCarryCurrentPublisherVersion() throws {
+        let fixture = RecoveryFixture()
+        let restarted = UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "2.1.0",
+                                     now: { Date(timeIntervalSince1970: Double(fixture.time) / 1000) },
+                                     output: { _ in })
+        _ = restarted.refresh()
+        let revision = try #require(fixture.durable.providers["codex"]?.snapshot?.revision)
+        fixture.time += 40000
+        fixture.failure = .temporaryFailure
+        fixture.messages = []
+        var watching = restarted
+        watching.isCancelled = { fixture.stopped }
+        watching.watch(providers: [.codex], triggers: { [.recoveryRequested] },
+                       wait: { _ in fixture.stopped = true })
+        #expect(fixture.fetchCount == 2)
+        #expect(!fixture.statuses.isEmpty && fixture.snapshots.count == 1)
+        for message in fixture.messages {
+            let json = try #require(JSONSerialization.jsonObject(with: Data(message.1.utf8)) as? [String: Any])
+            #expect(json["cliVersion"] as? String == "2.1.0")
+        }
+        fixture.stopped = false
+        fixture.messages = []
+        _ = restarted.clear(provider: .codex)
+        let invalidated = try UsageWire().decodeStatus(#require(fixture.statuses.last), now: restarted.now())
+        #expect(invalidated.cliVersion == "2.1.0")
+        #expect(invalidated.latestInvalidationRevision > revision)
+    }
+
+    @Test func replayReplacesRetainedPublisherVersionWithoutChangingObservation() throws {
+        let fixture = RecoveryFixture()
+        _ = fixture.runtime().refresh()
+        fixture.durable.providers["codex"]?.snapshot?.cliVersion = "1.0.0"
+        fixture.durable.providers["codex"]?.status?.cliVersion = "1.0.0"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let retained = try encoder.encode(fixture.durable)
+        fixture.messages = []
+        let runtime = UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "3.0.0",
+                                   now: { Date(timeIntervalSince1970: Double(fixture.time) / 1000) }, output: { _ in })
+        runtime.recover(providers: [.codex])
+        let snapshot = try UsageWire().decodeSnapshot(#require(fixture.snapshots.first), now: runtime.now())
+        #expect(snapshot.cliVersion == "3.0.0")
+        let status = try UsageWire().decodeStatus(#require(fixture.statuses.first), now: runtime.now())
+        #expect(status.cliVersion == "3.0.0")
+        #expect(try encoder.encode(fixture.durable) == retained)
+    }
+}
+
 struct UsageRecoveryTests {
     @Test func verifiedRestartReplaysOriginalSnapshotAndIndependentFailureStatus() throws {
         let fixture = RecoveryFixture()

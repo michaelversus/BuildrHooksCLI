@@ -448,6 +448,14 @@ observation and attempts macOS distributed publication. Notifications do not lau
 BuildrAI, write its App Group, or acknowledge receipt. Actual receipt/widget behavior
 requires the separate BuildrAI integration check.
 
+Snapshot and collection-status notifications optionally carry `cliVersion`, a JSON
+String identifying the publishing executable using the same source as
+`buildrhooks --version`. Refresh, watch, and recovery replay use the current publisher
+version, independently of repository hook markers. Replay preserves observation times,
+revisions and invalidation markers; a newer sender version does not imply fresh usage.
+Older caches remain readable and an absent version means unknown. See the
+[authoritative v1 wire contract](docs/account-usage-wire.md).
+
 Minimal state and per-provider revisions are atomically retained with owner-only file
 permissions at `~/.codex/buildr-artifacts/account-usage.json`. Failure preserves a
 previous observation's time and values. One-shot refresh publishes only fresh usage;

@@ -117,6 +117,8 @@ public struct UsageRuntime: Sendable {
     public static let statusNotification = "ai.buildrai.account-usage-status-updated"
     public var fetcher: any UsageFetching
     public var store: any UsageStateStoring
+    /// Version of the publishing executable, applied only to outgoing observation copies.
+    public let cliVersion: String?
     public var notifier: any UsageNotifying
     public var now: @Sendable () -> Date
     public var parse: @Sendable (Data) throws -> [UsageWindow]
@@ -126,7 +128,7 @@ public struct UsageRuntime: Sendable {
     public var output: @Sendable (String) -> Void
     public init(
         fetcher: any UsageFetching, store: any UsageStateStoring = UsageFileStateStore(),
-        notifier: any UsageNotifying = DistributedUsageNotifier(),
+        notifier: any UsageNotifying = DistributedUsageNotifier(), cliVersion: String? = nil,
         now: @escaping @Sendable () -> Date = Date.init,
         parse: @escaping @Sendable (Data) throws -> [UsageWindow] = { try CodexUsageParser().windows(from: $0) },
         output: @escaping @Sendable (String) -> Void = { print($0) }
@@ -134,6 +136,7 @@ public struct UsageRuntime: Sendable {
         self.fetcher = fetcher
         self.store = store
         self.notifier = notifier
+        self.cliVersion = cliVersion
         self.now = now
         self.parse = parse
         self.output = output
@@ -288,8 +291,7 @@ public struct UsageRuntime: Sendable {
     }
 
     private func publishPendingStatus(_ status: UsageCollectionStatus?) {
-        guard let status, let payload = try? UsageWire().encode(status, now: now()) else { return }
-        try? notifier.post(name: Self.statusNotification, payload: payload)
+        _ = try? publish(snapshot: nil, status: status)
     }
 
     private func fetch(provider: UsageProvider, revision: UInt64) -> UsageFetchResult {
@@ -318,13 +320,15 @@ public struct UsageRuntime: Sendable {
         var attempted = false
         let wire = UsageWire()
         do {
-            if let snapshot {
+            if var snapshot {
+                snapshot.cliVersion = cliVersion
                 guard !isCancelled() else { throw UsageFetchError.cancelled }
                 let payload = try wire.encode(snapshot, now: now())
                 attempted = true
                 try notifier.post(name: Self.snapshotNotification, payload: payload)
             }
-            if let status {
+            if var status {
+                status.cliVersion = cliVersion
                 guard !isCancelled() else { throw UsageFetchError.cancelled }
                 let payload = try wire.encode(status, now: now())
                 attempted = true

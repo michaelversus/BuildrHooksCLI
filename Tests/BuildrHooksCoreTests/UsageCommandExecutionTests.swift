@@ -24,6 +24,13 @@ struct UsageCommandExecutionTests {
         ))
     }
 
+    @Test func productionExecutionUsesCommandVersionSource() {
+        let execution = UsageCommandExecution(codexPath: nil)
+        defer { execution.close() }
+        #expect(execution.runtime.cliVersion == version)
+        #expect(execution.runtime.cliVersion == BuildrHooksCLICommand.configuration.version)
+    }
+
     @Test func lifecycleCoalescesWakeAndRecoveryRejectsPayloadsAndRemovesObservers() {
         let recovery = NotificationCenter()
         let wake = NotificationCenter()

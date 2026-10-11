@@ -28,11 +28,14 @@ public struct UsageWindow: Codable, Equatable, Sendable {
 
 public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var schemaVersion = 1
+    public var cliVersion: String?
     public let provider: UsageProvider
     public let revision: UInt64
     public let collectedAt: Int64
     public let windows: [UsageWindow]
-    public init(provider: UsageProvider, revision: UInt64, collectedAt: Int64, windows: [UsageWindow]) {
+    public init(provider: UsageProvider, revision: UInt64, collectedAt: Int64, windows: [UsageWindow],
+                cliVersion: String? = nil) {
+        self.cliVersion = cliVersion
         self.provider = provider
         self.revision = revision
         self.collectedAt = collectedAt
@@ -42,6 +45,7 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
 
 public struct UsageCollectionStatus: Codable, Equatable, Sendable {
     public var schemaVersion = 1
+    public var cliVersion: String?
     public let provider: UsageProvider
     public let revision: UInt64
     public let observedAt: Int64
@@ -49,7 +53,8 @@ public struct UsageCollectionStatus: Codable, Equatable, Sendable {
     public let retryAt: Int64?
     public let latestInvalidationRevision: UInt64
     public init(provider: UsageProvider, revision: UInt64, observedAt: Int64, status: UsageStatusCode,
-                retryAt: Int64? = nil, latestInvalidationRevision: UInt64 = 0) {
+                retryAt: Int64? = nil, latestInvalidationRevision: UInt64 = 0, cliVersion: String? = nil) {
+        self.cliVersion = cliVersion
         self.provider = provider
         self.revision = revision
         self.observedAt = observedAt
@@ -95,7 +100,7 @@ public struct UsageWire: Sendable {
     }
 
     private func validate(_ snapshot: UsageSnapshot, now: Date) throws {
-        guard snapshot.schemaVersion == 1, snapshot.revision > 0,
+        guard snapshot.schemaVersion == 1, snapshot.revision > 0, validVersion(snapshot.cliVersion),
               validObservation(snapshot.collectedAt, now: now), !snapshot.windows.isEmpty else {
             throw UsageWireError.invalidPayload
         }
@@ -110,10 +115,21 @@ public struct UsageWire: Sendable {
     }
 
     private func validate(_ status: UsageCollectionStatus, now: Date) throws {
-        guard status.schemaVersion == 1, status.revision > 0,
+        guard status.schemaVersion == 1, status.revision > 0, validVersion(status.cliVersion),
               validObservation(status.observedAt, now: now),
               status.latestInvalidationRevision <= status.revision,
               status.retryAt.map({ $0 >= 0 }) ?? true else { throw UsageWireError.invalidPayload }
+    }
+
+    private func validVersion(_ version: String?) -> Bool {
+        guard let version else { return true }
+        guard version.utf8.count <= 128 else { return false }
+        let number = "(0|[1-9][0-9]*)"
+        let prerelease = "(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+        let pattern = "^" + number + "\\." + number + "\\." + number
+            + "(-" + prerelease + "(\\." + prerelease + ")*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+        return version.range(of: pattern, options: .regularExpression) != nil
+            && !version.contains("\n") && !version.contains("\r")
     }
 
     private func validObservation(_ value: Int64, now: Date) -> Bool {
