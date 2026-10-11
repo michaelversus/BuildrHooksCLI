@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "BuildrHooksCLI",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "BuildrHooksCore", targets: ["BuildrHooksCore"]),
         .executable(name: "BuildrHooksCLI", targets: ["BuildrHooksCLI"])

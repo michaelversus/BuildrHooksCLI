@@ -8,7 +8,7 @@ struct BuildrHooksCLICommand: ParsableCommand {
         commandName: "buildrhooks",
         abstract: "Relay hook events into BuildrAI's raw hook queue.",
         version: version,
-        subcommands: [CodexCommand.self, ClaudeCommand.self, CapabilitiesCommand.self]
+        subcommands: [CodexCommand.self, ClaudeCommand.self, CapabilitiesCommand.self, UsageCommand.self]
     )
 }
 

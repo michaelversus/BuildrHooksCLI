@@ -39,6 +39,40 @@ struct BuildrHooksCLICommandTests {
     }
 
     @Test
+    func usageRefreshRequiresExplicitSupportedProviderAndAcceptsRepeatedSelection() throws {
+        #expect(throws: (any Error).self) { try UsageRefreshCommand.parse([]).validate() }
+        #expect(throws: (any Error).self) { try UsageRefreshCommand.parse(["--provider", "claude"]).validate() }
+        let command = try UsageRefreshCommand.parse([
+            "--provider", "codex", "--provider", "codex", "--json", "--codex-path", "/installed/codex"
+        ])
+        try command.validate()
+        #expect(command.provider == ["codex", "codex"])
+        #expect(command.json)
+        #expect(command.codexPath == "/installed/codex")
+    }
+
+    @Test
+    func usageWatchRequiresSupportedExplicitSelection() throws {
+        #expect(throws: (any Error).self) { try UsageWatchCommand.parse([]).validate() }
+        #expect(throws: (any Error).self) { try UsageWatchCommand.parse(["--provider", "claude"]).validate() }
+        let command = try UsageWatchCommand.parse(["--provider", "codex", "--provider", "codex", "--json"])
+        try command.validate()
+        #expect(command.provider == ["codex", "codex"])
+        #expect(command.json)
+    }
+
+    @Test
+    func usageClearRequiresSupportedExplicitSelectionAndDescribesDeliveryLimits() throws {
+        #expect(throws: (any Error).self) { try UsageClearCommand.parse([]).validate() }
+        #expect(throws: (any Error).self) { try UsageClearCommand.parse(["--provider", "claude"]).validate() }
+        let command = try UsageClearCommand.parse(["--provider", "codex", "--provider", "codex", "--json"])
+        try command.validate()
+        #expect(command.provider == ["codex", "codex"] && command.json)
+        #expect(UsageClearCommand.helpMessage().contains("without stopping collection"))
+        #expect(UsageClearCommand.helpMessage().contains("no receiver acknowledgement"))
+    }
+
+    @Test
     func capabilitiesCommandEmitsTextAndSortedJSON() throws {
         let textCommand = try CapabilitiesCommand.parse([])
         try textCommand.run()
