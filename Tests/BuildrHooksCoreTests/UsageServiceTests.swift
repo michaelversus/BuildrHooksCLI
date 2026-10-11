@@ -3,7 +3,7 @@
 import Foundation
 import Testing
 
-private final class SimulatedLaunchctl: UsageServiceManaging, @unchecked Sendable {
+final class SimulatedLaunchctl: UsageServiceManaging, @unchecked Sendable {
     var loaded = false
     var running = false
     var starts = 0
@@ -118,7 +118,7 @@ struct UsageServiceTests {
         #expect(!fixture.manager.loaded && !fixture.manager.running)
     }
 
-    private struct Fixture {
+    struct Fixture {
         let root: URL
         let service: UsageService
         let manager: SimulatedLaunchctl
@@ -126,7 +126,7 @@ struct UsageServiceTests {
         let codex: String
     }
 
-    private func fixture() throws -> Fixture {
+    func fixture() throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let cli = root.appendingPathComponent("stable cli").path

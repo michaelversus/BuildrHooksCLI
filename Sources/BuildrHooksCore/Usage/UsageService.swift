@@ -29,7 +29,11 @@ public extension UsageServiceManaging {
 }
 
 public struct UsageLaunchctl: UsageServiceManaging {
-    public init() {}
+    private let executable: URL
+    public init(executable: URL = URL(fileURLWithPath: "/bin/launchctl")) {
+        self.executable = executable
+    }
+
     private var domain: String {
         "gui/\(geteuid())"
     }
@@ -69,7 +73,7 @@ public struct UsageLaunchctl: UsageServiceManaging {
         let deadline = ProcessInfo.processInfo.systemUptime + min(5, timeout)
         let process = Process()
         let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.executableURL = executable
         process.arguments = arguments
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

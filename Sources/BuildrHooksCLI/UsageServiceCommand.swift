@@ -26,10 +26,14 @@ struct UsageServiceEnableCommand: ParsableCommand {
     @Flag(name: .long, help: "Emit service state as JSON; diagnostics go to stderr.")
     var json = false
 
+    enum CodingKeys: String, CodingKey { case provider, cliPath, codexPath, json }
+
+    var makeService: () -> UsageService = { UsageService() }
+
     func run() throws {
         try reportService(json: json) {
-            try UsageService().enable(providers: provider, cliPath: cliPath, codexPath: codexPath,
-                                      currentExecutable: serviceExecutable())
+            try makeService().enable(providers: provider, cliPath: cliPath, codexPath: codexPath,
+                                     currentExecutable: serviceExecutable())
         }
     }
 }
@@ -41,8 +45,12 @@ struct UsageServiceDisableCommand: ParsableCommand {
     )
     @Flag(name: .long, help: "Emit service state as JSON.")
     var json = false
+    enum CodingKeys: String, CodingKey { case json }
+
+    var makeService: () -> UsageService = { UsageService() }
+
     func run() throws {
-        try reportService(json: json) { try UsageService().disable() }
+        try reportService(json: json) { try makeService().disable() }
     }
 }
 
@@ -53,50 +61,62 @@ struct UsageServiceStatusCommand: ParsableCommand {
     )
     @Flag(name: .long, help: "Emit service state as JSON without account-identifying details.")
     var json = false
+    enum CodingKeys: String, CodingKey { case json }
+
+    var makeService: () -> UsageService = { UsageService() }
+
     func run() throws {
-        try reportService(json: json) { try UsageService().status() }
+        try reportService(json: json) { try makeService().status() }
     }
 }
 
-private func serviceExecutable() -> String {
-    let argument = CommandLine.arguments[0]
+func serviceExecutable(
+    argument: String = CommandLine.arguments[0],
+    searchPath: String = ProcessInfo.processInfo.environment["PATH"] ?? ""
+) -> String {
     if argument.hasPrefix("/") {
         return argument
     }
     if argument.contains("/") {
         return URL(fileURLWithPath: argument).standardizedFileURL.path
     }
-    return (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+    return searchPath.split(separator: ":")
         .filter { $0.hasPrefix("/") }.map { "\($0)/\(argument)" }
         .first { FileManager.default.isExecutableFile(atPath: $0) } ?? argument
 }
 
-private func reportService(json: Bool, action: () throws -> UsageServiceStatus) throws {
+func reportService(
+    json: Bool,
+    output: (Data) throws -> Void = { try FileHandle.standardOutput.write(contentsOf: $0) },
+    errorOutput: (Data) -> Void = { FileHandle.standardError.write($0) },
+    action: () throws -> UsageServiceStatus
+) throws {
     do {
         let status = try action()
         if json {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            try FileHandle.standardOutput.write(encoder.encode(status) + Data([10]))
+            try output(encoder.encode(status) + Data([10]))
         } else {
-            print("Configured: \(status.configured); installed: \(status.installed)")
-            print("Service process health: \(status.processHealth.rawValue)")
-            print("Providers: \(status.enabledProviders.map(\.rawValue).joined(separator: ", "))")
-            print(
-                "Service process running: \(status.processRunning); collector available: \(status.collectorAvailable)"
-            )
-            print("Executable paths valid: \(status.executablesValid)")
-            for collection in status.retainedCollectionStatus {
-                print("Retained \(collection.provider.rawValue) collection status: \(collection.status.rawValue)")
+            var lines = [
+                "Configured: \(status.configured); installed: \(status.installed)",
+                "Service process health: \(status.processHealth.rawValue)",
+                "Providers: \(status.enabledProviders.map(\.rawValue).joined(separator: ", "))",
+                "Service process running: \(status.processRunning); collector available: \(status.collectorAvailable)",
+                "Executable paths valid: \(status.executablesValid)"
+            ]
+            lines += status.retainedCollectionStatus.map {
+                "Retained \($0.provider.rawValue) collection status: \($0.status.rawValue)"
             }
+            try output(Data((lines.joined(separator: "\n") + "\n").utf8))
         }
     } catch {
         let failure = error as? UsageServiceError ?? .invalidConfiguration
         if json {
             let data = try JSONEncoder().encode(["error": failure.rawValue])
-            FileHandle.standardOutput.write(data + Data([10]))
+            try output(data + Data([10]))
         }
-        FileHandle.standardError.write(Data((failure.guidance + "\n").utf8))
+        errorOutput(Data((failure.guidance + "\n").utf8))
         throw ExitCode(1)
     }
 }
