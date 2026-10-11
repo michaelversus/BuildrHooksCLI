@@ -127,7 +127,7 @@ struct UsageCoordinationTests {
         #expect(provider.count == 1)
     }
 
-    @Test func fallbackCancellationAndShortDeadlineReachInFlightFetcher() throws {
+    @Test func fallbackCancellationAndShortDeadlineAreDistinguished() throws {
         for cancel in [true, false] {
             let store = fixture()
             defer { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
@@ -141,12 +141,16 @@ struct UsageCoordinationTests {
                 fetcher: provider, store: store, notifier: CoordinationNotifier(), output: { _ in }
             )
             let start = UsageCoordination.time
+            // Cancellation is triggered inside fetch; leave setup time independent of the short deadline case.
             let result = UsageCoordination(cacheURL: store.fileURL).refresh(
-                runtime: runtime, timeout: 0.03, cancelled: { !stopped.output.isEmpty }
+                runtime: runtime, timeout: cancel ? 2 : 0.03, cancelled: { !stopped.output.isEmpty }
             )
             #expect(result.outcome == (cancel ? .cancelled : .timeout))
             #expect(!result.freshSnapshot && !result.publicationAttempted)
-            #expect(UsageCoordination.time - start < 0.3)
+            #expect(UsageCoordination.time - start < (cancel ? 3 : 0.3))
+            if cancel {
+                #expect(stopped.output == ["stop"])
+            }
             #expect(try store.load().providers["codex"]?.snapshot == nil)
             #expect(try UsageCoordination(cacheURL: store.fileURL).acquire())
         }
