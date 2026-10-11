@@ -243,10 +243,10 @@ final class UsageWatchState: Sendable {
     }
 
     func takeTriggers() -> [UsageWatchTrigger] {
-        flags.withLock {
-            defer { $0.woke = false; $0.recoveryRequested = false }
-            var triggers: [UsageWatchTrigger] = $0.woke ? [.wake] : []
-            if $0.recoveryRequested {
+        flags.withLock { state in
+            defer { state.woke = false; state.recoveryRequested = false }
+            var triggers: [UsageWatchTrigger] = state.woke ? [.wake] : []
+            if state.recoveryRequested {
                 triggers.append(.recoveryRequested)
             }
             return triggers
