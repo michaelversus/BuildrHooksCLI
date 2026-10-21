@@ -96,6 +96,20 @@ or malformed input cannot change custom output/exit behavior. Capture failure,
 unavailable/corrupt usage state and missing original collector never suppress custom
 rendering. Cancellation terminates only the owned delegate process group and skips
 late acceptance. Default rendering/capture stdin reads have a two-second bound.
+If a custom delegate closes stdin or exits early, capture drains independently for
+at most 100 ms to obtain EOF. A still-open upstream pipe or incomplete/oversized
+callback yields unavailable capture without changing delegate output or exit status.
+This repairs #38 in source; the first repaired release is still a release gate.
+
+After installing that release, preview `buildrhooks claude statusline setup` using
+the original scope flags, then repeat with `--apply` to refresh the standalone
+runner. Upgrading the main executable alone leaves existing setup-owned copies
+unchanged. Use `--repair` only for an intentionally adopted external replacement,
+previewing before applying. No live settings are changed automatically.
+
+Desktop capture through a separate opt-in mod is described in
+[Claude Desktop reported quota mod](claude-mod.md); terminal delegate repair alone
+does not make Desktop invoke a status line.
 
 `buildrhooks claude statusline capture [--json]` separately accepts bounded stdin
 without rendering. It performs no network provider read. Normal sessions should use

@@ -1,0 +1,6 @@
+{
+  "name": "buildr-usage",
+  "version": "0.1.0",
+  "description": "Reports documented Claude plan quota to an explicitly configured BuildrHooksCLI bridge.",
+  "author": { "name": "BuildrAI" }
+}

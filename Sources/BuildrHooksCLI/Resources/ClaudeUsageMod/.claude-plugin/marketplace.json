@@ -1,0 +1,13 @@
+{
+  "name": "buildrhooks",
+  "owner": { "name": "BuildrAI" },
+  "metadata": { "description": "Explicit BuildrHooksCLI integrations for reported provider usage" },
+  "plugins": [
+    {
+      "name": "buildr-usage",
+      "source": "./",
+      "description": "Report Claude plan quota through BuildrHooksCLI",
+      "version": "0.1.0"
+    }
+  ]
+}

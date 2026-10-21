@@ -1,0 +1,4 @@
+{
+  "description": "Observe reported quota without changing the session",
+  "modules": ["./register.js"]
+}

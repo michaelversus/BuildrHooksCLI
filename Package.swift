@@ -18,7 +18,8 @@ let package = Package(
             dependencies: [
                 "BuildrHooksCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ]
+            ],
+            resources: [.copy("Resources/ClaudeUsageMod")]
         ),
         .testTarget(
             name: "BuildrHooksCoreTests",

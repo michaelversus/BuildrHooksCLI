@@ -14,6 +14,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let accountUsageCaptureProviders: [UsageProvider]
     public let accountUsageSetupProviders: [UsageProvider]
     public let accountUsageSchemaVersions: [Int]
+    public let claudeModUsageCapture: Bool
 
     public static let current = BuildrHooksCapabilities(
         version: 1,
@@ -27,7 +28,8 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
         accountUsageServiceProviders: [.codex],
         accountUsageCaptureProviders: [.claude],
         accountUsageSetupProviders: [.claude],
-        accountUsageSchemaVersions: [1, 2]
+        accountUsageSchemaVersions: [1, 2],
+        claudeModUsageCapture: true
     )
 }
 
@@ -49,5 +51,6 @@ public extension BuildrHooksCapabilities {
         accountUsageSetupProviders = try values.decodeIfPresent([UsageProvider].self,
                                                                 forKey: .accountUsageSetupProviders) ?? []
         accountUsageSchemaVersions = try values.decode([Int].self, forKey: .accountUsageSchemaVersions)
+        claudeModUsageCapture = try values.decodeIfPresent(Bool.self, forKey: .claudeModUsageCapture) ?? false
     }
 }
