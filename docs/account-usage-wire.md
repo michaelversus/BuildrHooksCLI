@@ -270,3 +270,58 @@ Actual callback shape/version/platform, status-line preservation/setup/removal,
 restart/clear/replay with the receiver, signed sandbox delivery, and widget appearance
 remain separate parent acceptance gates. No live setup or model request is performed
 by these fixture tests.
+
+## Claude capture, clear and responder behavior
+
+The bridge accepts activity-driven status-line reports only. `ClaudeUsageParser`
+reads at most 1 MiB of callback JSON and extracts only `rate_limits.five_hour` and
+`rate_limits.seven_day`. Missing/null limits or supported windows are valid absence;
+a supplied non-null limits/window value must be an object. A supplied window must
+have a numeric finite `used_percentage` in 0...100; strings, booleans, missing/null
+percentages and invalid supported windows reject the entire callback. Optional/null
+`resets_at` is unknown; otherwise it must be a nonnegative integral JSON number of
+Unix seconds whose multiplication by 1000 fits `Int64`. Unknown fields, spend,
+identity and conversation data are ignored. Original callback bytes are never
+written to state or sent through private coordination.
+
+`UsageCoordination.captureClaude(runtime:input:)` samples the persisted explicit-clear
+revision **before** invoking its input closure, then normalizes in memory. It sends
+only at most two normalized windows (or a sanitized malformed marker) through the
+existing bounded, same-user private command socket. With no owner, the invocation
+holds the existing exclusive lock itself; with an active Codex watch/service, that
+owner serially accepts the request. Both routes commit the provider partition before
+attempting notification publication, holding ownership through publication. Distinct
+callbacks are never coalesced; adjacent refresh/clear batching distinguishes providers.
+Configuration roots and synthetic session metadata do not partition quota or imply
+account identity. The last durably accepted whole report wins.
+
+Private Claude state adds optional `latestClearRevision`; its legacy default is zero,
+and it may not exceed `latestInvalidationRevision`. Explicit
+`buildrhooks usage clear --provider claude` advances both markers and publishes v2
+`usage_unavailable` with no retained snapshot or receipt. Pending callbacks that
+sampled an earlier clear revision cannot repopulate usage; a later invocation may.
+A valid quota-free report advances invalidation and advertises explicit absence,
+including that valid report's receipt time. It does **not** advance the explicit-clear
+fence: another pending valid callback can still replace it in durable acceptance order.
+Malformed capture advances only sanitized failure status and retains any previous
+whole snapshot and original receipt. Unchanged valid reports receive a new revision
+and receipt. Save failure publishes nothing; publication failure retains committed
+state for later recovery. Every outcome describes a local action/publication attempt,
+never app or widget acknowledgement.
+
+The existing `usage watch --provider codex` owner (including an explicitly enabled
+service) also receives Claude recovery requests with bounded `replayRequestID`.
+These triggers do not initiate a Codex or Claude quota read. Claude replies echo the
+request token in both retained snapshot and authoritative status, preserving receipt,
+status time and revisions. With no previous Claude state, the owner commits an
+explicit no-snapshot status before replying. Duplicate tokens are coalesced for one
+second; distinct tokens can receive distinct replies within that second (bounded to
+64 tokens), so an obsolete recovery request cannot suppress the current one.
+Legacy nil-userInfo Codex replay retains its existing behavior.
+
+No callback, clear or recovery path enables a login service, starts provider polling,
+changes authentication or reads credential stores. With no available responder,
+recovery has no reply until an existing owner or a genuinely new callback supplies
+authoritative state; silence is not evidence of incompatibility or installation.
+Setup and transparent status-line rendering are delivered separately. Real callback
+shape/version/platform and OS/app/widget receipt remain manual parent #32 gates.

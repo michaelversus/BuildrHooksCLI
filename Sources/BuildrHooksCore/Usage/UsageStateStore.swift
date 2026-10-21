@@ -4,6 +4,7 @@ import Foundation
 public struct UsageProviderState: Codable, Sendable {
     public var revision: UInt64 = 0
     public var latestInvalidationRevision: UInt64 = 0
+    public var latestClearRevision: UInt64?
     public var lastFetchStartedAt: Int64?
     public var retryNotBefore: Int64?
     public var temporaryFailureCount: Int?
@@ -79,6 +80,7 @@ public struct UsageFileStateStore: UsageStateStoring {
                     _ = try UsageWire().encode(status, now: upperBound)
                 }
                 guard state.accountFingerprint == nil, state.fingerprintSalt == nil,
+                      state.latestClearRevision.map({ $0 <= state.latestInvalidationRevision }) ?? true,
                       state.status?.retainedSnapshotRevision == state.snapshot?.revision,
                       state.snapshot.map({ snapshot in
                           state.status?.receivedAt == nil || state.status?.receivedAt == snapshot.receivedAt

@@ -4,9 +4,6 @@ public extension UsageRuntime {
     /// Call only under exclusive ownership, or from the synchronous private control dispatcher.
     /// Publication reports an attempt; distributed notifications cannot confirm receiver clearing.
     func clear(provider: UsageProvider = .codex) -> UsageRefreshResult {
-        guard provider == .codex || additionalFetchers[provider] != nil else {
-            return result(provider, .unsupportedProvider)
-        }
         guard !isCancelled() else { return result(provider, .cancelled) }
         let cleared: UsageCollectionStatus
         var expectedInvalidation: UInt64?
@@ -16,11 +13,22 @@ public extension UsageRuntime {
             guard state.revision < UInt64.max - 1 else { return result(provider, .persistenceFailure) }
             state.revision += 1
             state.latestInvalidationRevision = state.revision
+            if provider == .claude {
+                state.latestClearRevision = state.revision
+            }
             state.snapshot = nil
             state.revision += 1
             // Failures and provider retry restrictions survive clearing values.
             let code = state.status?.status == .ready ? UsageStatusCode.pending : (state.status?.status ?? .pending)
-            cleared = status(code, provider: provider, state: state, retryAt: state.status?.retryAt)
+            if provider == .claude {
+                guard let cliVersion else { return result(provider, .persistenceFailure) }
+                cleared = UsageCollectionStatus(revision: state.revision, observedAt: milliseconds(),
+                                                status: .usageUnavailable,
+                                                latestInvalidationRevision: state.latestInvalidationRevision,
+                                                retainedSnapshotRevision: nil, cliVersion: cliVersion)
+            } else {
+                cleared = status(code, provider: provider, state: state, retryAt: state.status?.retryAt)
+            }
             state.status = cleared
             durable.providers[provider.rawValue] = state
             expectedInvalidation = state.latestInvalidationRevision

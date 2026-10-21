@@ -293,7 +293,7 @@ struct UsageRecoveryTests {
         runtime.recover(providers: [.claude])
         #expect(fixture.snapshots.count == 1)
         #expect(fixture.statuses.count == 1)
-        #expect(fixture.fetchCount == 2)
+        #expect(fixture.fetchCount == 1) // Claude is capture-only, never polled.
         let now = Date(timeIntervalSince1970: Double(fixture.time) / 1000)
         let providers = try fixture.snapshots.map { try UsageWire().decodeSnapshot($0, now: now).provider }
         #expect(Set(providers) == Set([UsageProvider.codex]))

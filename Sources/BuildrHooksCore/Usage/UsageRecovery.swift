@@ -21,6 +21,7 @@ final class UsageRecoverySession: Sendable {
     private struct State {
         var verified = Set<UsageProvider>()
         var lastReply: Int64?
+        var correlatedReplies: [String: Int64] = [:]
     }
 
     private let state = Mutex(State())
@@ -35,6 +36,18 @@ final class UsageRecoverySession: Sendable {
 
     func isVerified(_ provider: UsageProvider) -> Bool {
         state.withLock { $0.verified.contains(provider) }
+    }
+
+    func beginClaudeReply(id: String, at time: Int64) -> Bool {
+        state.withLock {
+            if let last = $0.correlatedReplies[id], time < last + 1000 {
+                return false
+            }
+            $0.correlatedReplies = $0.correlatedReplies.filter { time < $0.value + 1000 }
+            guard $0.correlatedReplies.count < 64 else { return false }
+            $0.correlatedReplies[id] = time
+            return true
+        }
     }
 
     func beginReply(at time: Int64) -> Bool {
@@ -73,7 +86,7 @@ extension UsageRuntime {
 
     /// Identity reads never fetch limits, and are bounded independently of collection scheduling.
     func prepareRecovery(providers: [UsageProvider], publishInvalidation: Bool = true) {
-        for provider in providers where !recovery.isVerified(provider) {
+        for provider in providers where provider == .codex && !recovery.isVerified(provider) {
             guard !isCancelled() else { return }
             guard var durable = try? store.load(), var state = durable.providers[provider.rawValue],
                   state.revision < UInt64.max - 3, state.snapshot != nil else { continue }
@@ -110,16 +123,49 @@ extension UsageRuntime {
     }
 
     /// Replay all selected providers at most once a second globally; no collection is triggered.
-    public func recover(providers: [UsageProvider]) {
-        guard recovery.beginReply(at: milliseconds()), !isCancelled() else { return }
+    public func recover(providers: [UsageProvider], replayRequestID: String? = nil) {
+        guard !isCancelled() else { return }
+        if let replayRequestID {
+            guard (try? UsageReplayRequest(replayRequestID: replayRequestID)) != nil,
+                  recovery.beginClaudeReply(id: replayRequestID, at: milliseconds()) else { return }
+        } else {
+            guard recovery.beginReply(at: milliseconds()) else { return }
+        }
         let selected = Array(Set(providers)).sorted { $0.rawValue < $1.rawValue }
         prepareRecovery(providers: selected, publishInvalidation: false)
         guard let durable = try? store.load() else { return }
         for provider in selected {
+            if provider == .claude {
+                recoverClaude(replayRequestID: replayRequestID)
+                continue
+            }
             guard let state = durable.providers[provider.rawValue] else { continue }
             let snapshot = recovery.isVerified(provider) ? state.snapshot : nil
             let valid = snapshot.flatMap { $0.revision > state.latestInvalidationRevision ? $0 : nil }
             _ = try? publish(snapshot: valid, status: state.status)
         }
+    }
+}
+
+extension UsageRuntime {
+    /// Called by an existing owner; no provider identity or quota read is performed.
+    private func recoverClaude(replayRequestID: String?) {
+        guard let cliVersion, var durable = try? store.load() else { return }
+        var state = durable.providers[UsageProvider.claude.rawValue] ?? .init()
+        if state.status == nil {
+            guard state.revision < UInt64.max else { return }
+            state.revision += 1
+            state.status = UsageCollectionStatus(revision: state.revision, observedAt: milliseconds(),
+                                                 status: .usageUnavailable,
+                                                 latestInvalidationRevision: state.latestInvalidationRevision,
+                                                 retainedSnapshotRevision: nil, cliVersion: cliVersion)
+            durable.providers[UsageProvider.claude.rawValue] = state
+            guard (try? store.save(durable)) != nil else { return }
+        }
+        var snapshot = state.snapshot
+        var status = state.status
+        snapshot?.replayRequestID = replayRequestID
+        status?.replayRequestID = replayRequestID
+        _ = try? publish(snapshot: snapshot, status: status)
     }
 }
