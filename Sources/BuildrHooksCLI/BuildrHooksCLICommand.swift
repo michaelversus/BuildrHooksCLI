@@ -45,6 +45,7 @@ struct ClaudeCommand: ParsableCommand {
         subcommands: [
             ClaudeToolStartCommand.self,
             ClaudeStatusLineCommand.self,
+            ClaudeModCommand.self,
             ClaudeSessionStartCommand.self,
             ClaudePromptSubmitCommand.self,
             ClaudeStopCommand.self

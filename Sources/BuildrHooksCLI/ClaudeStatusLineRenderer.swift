@@ -93,14 +93,23 @@ struct ClaudeStatusLineRenderer {
 
     private func stream(to destination: FileHandle, process: pid_t, completed: inout Int32?) throws -> Data? {
         var captured: Data? = Data()
+        var forwarding = true
+        var drainDeadline: TimeInterval?
         guard fcntl(destination.fileDescriptor, F_SETNOSIGPIPE, 1) == 0,
               fcntl(destination.fileDescriptor, F_SETFL, O_NONBLOCK) == 0 else {
             throw ClaudeStatusLineError.unsafePath
         }
         while cancelled() == nil {
             var status: Int32 = 0
-            if waitpid(process, &status, WNOHANG) == process {
-                completed = status; return nil
+            if completed == nil, waitpid(process, &status, WNOHANG) == process {
+                completed = status
+                forwarding = false
+                // A finite callback can outlive its delegate. Drain it independently,
+                // but never wait indefinitely for an upstream writer to close.
+                drainDeadline = ProcessInfo.processInfo.systemUptime + 0.1
+            }
+            if let drainDeadline, ProcessInfo.processInfo.systemUptime >= drainDeadline {
+                return nil
             }
             var event = pollfd(fd: input.fileDescriptor, events: Int16(POLLIN), revents: 0)
             guard poll(&event, 1, 10) > 0 else { continue }
@@ -113,16 +122,23 @@ struct ClaudeStatusLineRenderer {
             } else {
                 captured = nil
             }
-            if !write(chunk, descriptor: destination.fileDescriptor) {
-                return nil
+            if forwarding, !write(chunk, descriptor: destination.fileDescriptor, process: process,
+                                  completed: &completed) {
+                forwarding = false
+                drainDeadline = ProcessInfo.processInfo.systemUptime + 0.1
             }
         }
         return nil
     }
 
-    private func write(_ data: Data, descriptor: Int32) -> Bool {
+    private func write(_ data: Data, descriptor: Int32, process: pid_t, completed: inout Int32?) -> Bool {
         var offset = 0
         while offset < data.count, cancelled() == nil {
+            var status: Int32 = 0
+            if waitpid(process, &status, WNOHANG) == process {
+                completed = status
+                return false
+            }
             let count = data.withUnsafeBytes { bytes in
                 Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), data.count - offset)
             }

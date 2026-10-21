@@ -82,6 +82,7 @@ surface. A session later resumed in a terminal likewise emits no Desktop
 surface. BuildrAI's host app owns project selection and the safe management of
 its named `.claude/settings.local.json` hook entries. Explicit CLI-owned status-line
 usage setup is separate; see [Claude reported usage](docs/claude-statusline.md).
+Desktop quota capture has a separate, explicit [mod preparation and installation](docs/claude-mod.md) path.
 
 ## 🛠️ Installation
 

@@ -88,7 +88,7 @@ struct ClaudeStatusLineStatusCommand: ParsableCommand {
 
 struct ClaudeStatusLineCaptureCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "capture", abstract: "Accept bounded status-line stdin locally; no network quota fetch.",
+        commandName: "capture", abstract: "Accept bounded normalized quota stdin locally; no network quota fetch.",
         discussion: "Last received means bridge acceptance time. Publication is attempted, never acknowledged."
     )
     @Flag(name: .long, help: "Emit the local outcome as JSON.") var json = false
@@ -125,6 +125,7 @@ struct ClaudeStatusLineRunCommand: ParsableCommand {
     @Option(name: .long, help: "Private immutable ownership record created by setup.") var metadata: String
     enum CodingKeys: String, CodingKey { case metadata }
     var makeRuntime: () -> UsageRuntime = { UsageRuntime(fetcher: CodexUsageFetcher(), cliVersion: version) }
+    var makeCoordination: () -> UsageCoordination = { UsageCoordination() }
     var makeSignals: () -> ClaudeStatusLineSignals = { ClaudeStatusLineSignals() }
     var makeRenderer: (ClaudeStatusLineSignals) -> ClaudeStatusLineRenderer = { signals in
         ClaudeStatusLineRenderer(cancelled: { signals.received })
@@ -144,11 +145,11 @@ struct ClaudeStatusLineRunCommand: ParsableCommand {
         let rendered = try makeRenderer(signals).render(command: command)
         if let generation, signals.received == nil, rendered.terminationSignal == nil {
             let windows = rendered.input.flatMap { try? ClaudeUsageParser().windows(from: $0) }
-            _ = UsageCoordination().refresh(runtime: runtime, timeout: 2, cancelled: runtime.isCancelled,
-                                            request: UsagePrivateRequest(
-                                                windows: windows,
-                                                generation: generation
-                                            ))
+            _ = makeCoordination().refresh(runtime: runtime, timeout: 2, cancelled: runtime.isCancelled,
+                                           request: UsagePrivateRequest(
+                                               windows: windows,
+                                               generation: generation
+                                           ))
         }
         signals.close()
         if let termination = rendered.terminationSignal {
