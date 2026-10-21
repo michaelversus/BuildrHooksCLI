@@ -158,7 +158,10 @@ extension ClaudeStatusLineRenderer {
         sigaddset(&defaults, SIGTERM)
         posix_spawnattr_setsigdefault(&attributes, &defaults)
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF))
-        let strings = ["sh", "-c", command].map { strdup($0) }
+        let commandArguments: [String] = ["sh", "-c", command]
+        let strings = commandArguments.map { argument in
+            argument.withCString { strdup($0) }
+        }
         defer { strings.forEach { free($0) } }
         var arguments = strings + [nil]
         var process: pid_t = 0

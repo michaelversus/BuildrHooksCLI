@@ -137,9 +137,9 @@ The final independent validation ran these checks on the resulting source range:
 | Check | Result | Retained local evidence |
 | --- | --- | --- |
 | Focused affected Swift Testing selection | 97 tests / 17 suites passed | `/tmp/issue36-tester-focused.log` |
-| `swift test --no-parallel --enable-code-coverage` | 206 tests / 40 suites passed | `/tmp/issue36-tester-full.log` |
-| `swift build` | Passed | `/tmp/issue36-tester-build.log` |
-| `swift build -c release` | Passed | `/tmp/issue36-tester-release.log` |
+| `swift test --no-parallel --enable-code-coverage` | 206 tests / 40 suites passed again after the compiler repair | `/tmp/issue36-ci-repair-full.log` |
+| `swift build` | Passed after the compiler repair | `/tmp/issue36-ci-repair-build.log` |
+| `swift build -c release` | Passed after the compiler repair | `/tmp/issue36-ci-repair-release.log` |
 | SwiftLint | 0 violations across 89 files | `/tmp/issue36-linter-swiftlint.log` |
 | SwiftFormat lint | 0/89 files need formatting | `/tmp/issue36-linter-swiftformat.log` |
 | `sh .githooks/pre-push-process.sh` | Passed without modifying files | `/tmp/issue36-parent-hook.log` |
@@ -156,6 +156,16 @@ failed on the newly required fields; all three passed after the additive default
 These logs are `/tmp/issue36-red.log`, `/tmp/issue36-legacy-red.log` and
 `/tmp/issue36-capabilities-green.log`. All checks above are host automated evidence;
 the operator and downstream gates below remain pending.
+
+The first PR CI run used Swift 6.3.3 on Xcode 26.6 and rejected implicit C-string
+conversion in the delegate argument array. The repair makes the string array and
+`withCString` conversion explicit, preserving owned buffer lifetimes and delegate
+bytes. After that repair, six renderer/installed-runner tests, the complete 206-test
+coverage suite, debug/release builds, lint and formatting passed locally. Local
+validation uses Swift 6.4; Xcode 26.6 is unavailable on this machine, so hosted PR
+checks separately establish that toolchain's result. Repair logs are retained as
+`/tmp/issue36-ci-repair-*.log`, with the original failure in
+`/tmp/issue36-ci-failure.log`.
 
 ## Pending one-account operator acceptance
 
