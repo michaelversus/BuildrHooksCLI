@@ -67,6 +67,25 @@ public struct UsageFileStateStore: UsageStateStoring {
 
     private func validate(_ durable: UsageDurableState) throws {
         for (key, state) in durable.providers {
+            guard let provider = UsageProvider(rawValue: key) else { throw UsageWireError.invalidPayload }
+            if provider == .claude {
+                // Persistence is independent of a receiver's current clock. Wire receipt
+                // checks the two-minute future bound with the injected publication clock.
+                let upperBound = Date(timeIntervalSince1970: Double(Int64.max) / 1000)
+                if let snapshot = state.snapshot {
+                    _ = try UsageWire().encode(snapshot, now: upperBound)
+                }
+                if let status = state.status {
+                    _ = try UsageWire().encode(status, now: upperBound)
+                }
+                guard state.accountFingerprint == nil, state.fingerprintSalt == nil,
+                      state.status?.retainedSnapshotRevision == state.snapshot?.revision,
+                      state.snapshot.map({ snapshot in
+                          state.status?.receivedAt == nil || state.status?.receivedAt == snapshot.receivedAt
+                      }) ?? true else {
+                    throw UsageWireError.invalidPayload
+                }
+            }
             guard state.latestInvalidationRevision <= state.revision,
                   state.lastFetchStartedAt.map({ $0 >= 0 && $0 <= Int64.max - 30000 }) ?? true,
                   state.retryNotBefore.map({ $0 >= 0 }) ?? true,

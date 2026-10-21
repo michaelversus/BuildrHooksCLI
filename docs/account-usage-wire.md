@@ -1,4 +1,4 @@
-# Account usage wire version 1
+# Account usage wire contracts
 
 Delivered by `usage refresh --provider codex` and the foreground
 `usage watch --provider codex` collector under
@@ -51,7 +51,7 @@ fallback uses its limitId or `codex`). Codes use ASCII letters/digits, dot, unde
 and hyphen, with length 1 through 128 bytes. Invalid codes fail the observation rather
 than broadcasting potentially identifying text. Missing windows are not synthesized.
 Multi-bucket data takes precedence, without duplicating the legacy representation.
-No usage values are clamped to 100.
+Codex usage values are not clamped to 100. Claude v2 has its own bounded percentage contract below.
 
 Status codes are `pending`, `ready`, `authentication_required`, `temporary_failure`,
 `throttled`, and `usage_unavailable`. Timeout, executable and parsing failures map to
@@ -66,7 +66,7 @@ fetch has a revision above the marker and can populate usage again. Clear preser
 private continuity, ordering and retry restrictions and never stops collection.
 
 `UsageWire` validates both encoding and decoding. Payloads are limited to 64 KiB of
-UTF-8, schema version must be 1, provider/required fields must be well formed, revision
+UTF-8, Codex schema version must be 1 (Claude uses v2 below), provider/required fields must be well formed, revision
 must be positive, windows must be nonempty with unique limit-code/role pairs, percentages must be finite and nonnegative,
 durations must be positive when present, and timestamps must be nonnegative.
 Observation timestamps can be at most two minutes ahead of the receiver's clock.
@@ -79,7 +79,7 @@ The primary test seam is `UsageRuntime`, with injected provider fetcher, parser,
 clock, notifier, output and storage. Simulated full responses and fake executable
 transports exercise this path without live credentials. The collector
 persists minimal state atomically at `~/.codex/buildr-artifacts/account-usage.json`,
-with owner-only file permissions. Private metadata contains a random per-provider salt
+with owner-only file permissions. Private Codex metadata contains a random salt
 and SHA-256 account fingerprint, never a raw ID or email. These fields are excluded
 from notifications and diagnostics. A pending status is best-effort published;
 final storage/publication failure is a nonzero CLI outcome. A successful refresh
@@ -87,7 +87,7 @@ reports attempted publication only, not receipt.
 
 ## Recovery
 
-An available foreground collector listens for `ai.buildrai.account-usage-requested`
+For legacy Codex recovery, an available foreground collector listens for `ai.buildrai.account-usage-requested`
 with **no userInfo**. Requests containing userInfo are ignored. It replays every available
 selected provider's valid snapshot and collection status, including known failures and
 invalidation when no snapshot remains. Requests do not fetch limits, launch BuildrAI,
@@ -155,3 +155,118 @@ Pending reviewer actions with the actual receiver and distributed notification t
    do not establish OS delivery, live account compatibility, or App Store approval.
 
 No real receiver check or login-service installation was performed by ordinary tests.
+
+## Claude provider-scoped v2 contract
+
+Specification [#32](https://github.com/michaelversus/BuildrHooksCLI/issues/32) adds
+Reported Provider Usage for Claude. Account attribution is unavailable: concurrent
+sessions or account changes may report another account. A configuration root is a
+setup scope, never an account. Codex keeps the v1 account-continuity behavior above;
+Claude is never interpreted as Codex v1 and has no account fingerprint or label.
+
+The existing notification names and `object=nil` remain unchanged. Snapshot/status
+notifications still carry one UTF-8 JSON string in `userInfo["payload"]`, bounded to
+64 KiB. Provider strings and replay tokens do not authenticate local senders.
+
+A nonempty Claude snapshot uses `ai.buildrai.account-usage-updated`:
+
+```json
+{"schemaVersion":2,"cliVersion":"1.2.8","provider":"claude","scope":"provider","revision":5,"receivedAt":900000,"windows":[{"limitCode":"claude","role":"primary","durationMinutes":300,"usedPercent":0}]}
+```
+
+A Claude status uses `ai.buildrai.account-usage-status-updated`:
+
+```json
+{"schemaVersion":2,"cliVersion":"1.2.8","provider":"claude","scope":"provider","revision":6,"observedAt":950000,"status":"ready","latestInvalidationRevision":0,"retainedSnapshotRevision":5,"receivedAt":900000}
+```
+
+These versions are synthetic fixture metadata, not a claim that release 1.2.8
+supports Claude. The minimum compatible bridge version is the actual release that
+delivers this implementation; release/package evidence must establish it.
+
+`receivedAt` is the bridge's acceptance time in Unix milliseconds. It does **not**
+verify when Claude measured quota; even a new callback can contain upstream cached
+data. `UsageTimestamp.received` preserves that provenance through persistence/replay;
+`collectedAt` is absent for Claude, and the internal optional collection-time accessor
+is nil. Codex retains `UsageTimestamp.collected` and its unchanged `collectedAt` wire
+field. `observedAt` dates a status event independently of the retained receipt time.
+Replay and rendering never redate either observation.
+
+Exactly two window identities are supported for Claude: `limitCode=claude`, role
+`primary` with duration 300 minutes, and role `secondary` with duration 10080 minutes.
+A snapshot has one or both, without duplicates. `usedPercent` must be a finite JSON
+number in 0...100 inclusive; booleans and strings are rejected. Zero is valid.
+`resetsAt` is optional/null when unknown, otherwise a nonnegative integral Unix
+millisecond value. Callback normalization converts documented integral Unix seconds
+with overflow checks; passed resets do not synthesize capacity. Unknown windows are
+not fabricated. Every valid callback replaces the entire report, so a missing window
+is unavailable rather than copied from an earlier callback.
+
+The accepted pairs are **only** Codex v1 with no scope and Claude v2 with
+`scope=provider`. Unknown versions/providers/scopes, mixed collection/receipt fields,
+empty snapshots, invalid identities, malformed timestamps and ordering floors are
+rejected. Snapshot/status observation times remain bounded to two minutes ahead of
+the receiver clock; old observations and future reset/retry times remain valid.
+Claude statuses require valid bounded SemVer `cliVersion`; snapshots retain the
+optional publisher field. Codex's existing optional version meaning is unchanged.
+
+Claude statuses require `retainedSnapshotRevision` explicitly, either a positive
+revision above invalidation and no greater than the status revision, or JSON `null`.
+A `ready` status requires a retained revision and its original `receivedAt`.
+`temporary_failure` may retain the previous revision/receipt unchanged, advancing
+only status ordering. A valid quota-free callback invalidates older usable data and
+publishes `usage_unavailable` with explicit absence; it may carry that valid report's
+receipt time. Explicit clear also invalidates older/pending work, has no snapshot,
+and does not invent a receipt time:
+
+```json
+{"schemaVersion":2,"cliVersion":"1.2.8","provider":"claude","scope":"provider","revision":7,"observedAt":950000,"status":"usage_unavailable","latestInvalidationRevision":6,"retainedSnapshotRevision":null}
+```
+
+`usage_unavailable` cannot advertise a retained snapshot. Failure without a retained
+snapshot cannot advertise a valid receipt. Other established status codes keep their
+meaning. Revisions and invalidation are provider-local; snapshot and status receiver
+floors remain separate. A newer status can describe an older retained snapshot.
+Receivers must reconcile the declared retained revision/invalidation before exposing
+a gated cache; snapshot arrival alone is not an authoritative recovery completion.
+
+### Correlated recovery and private persistence
+
+A Claude recovery request extends `ai.buildrai.account-usage-requested` additively,
+with `object=nil` and exactly `userInfo["replayRequestID"]` containing an opaque token.
+`UsageReplayRequest` validates the token as 1...128 UTF-8 ASCII letters, digits,
+hyphen, dot or underscore. Replies echo `replayRequestID` in their JSON payload;
+the same bound applies to snapshot/status metadata. This is correlation only.
+A nil-userInfo request retains Codex compatibility. Other request shapes are rejected.
+
+An available existing watch/service responder supplies authoritative Claude retained
+revision or absence without polling Claude or changing account authentication.
+Obsolete/uncorrelated replies cannot complete a current Claude recovery attempt.
+Live reports still require provider-local reconciliation before replacing gated
+retained data. With no responder, the receiver waits for an authoritative new
+callback or reports waiting/no response. Silence proves neither installation nor
+incompatibility. No service may be installed/enabled implicitly to obtain replay.
+These responder/capture effects are implemented separately from this contract slice.
+
+Private state remains the existing atomic, owner-only, provider-keyed durable store.
+Old Codex state decodes directly into typed collected provenance without modifying
+values, salts, fingerprints, retry restrictions, revision floors, status or windows.
+Claude state has no salt/fingerprint and cannot be saved with one. Its retained
+revision must agree with the actual snapshot; a supplied retained receipt must agree
+with that snapshot's original receipt. The store validates structural state without
+using the wall clock to redate or expire it; publication/receipt checks use their own
+clock. A rejected save leaves committed state intact. Capture/clear must commit under
+the existing ownership/coordination path before publishing; raw callback bytes,
+credentials and account metadata are never persisted or sent.
+
+The shared fixtures in `Tests/Fixtures/usage/` contain canonical sorted-key Codex v1
+snapshot/status, Claude v2 snapshot/status/absence with correlation, and a synthetic
+legacy private Codex state. `ClaudeUsageContractTests` and
+`ClaudeUsagePersistenceTests` exercise exact fixture encodings, incompatible contract
+rejection, timestamp provenance, independent floors, explicit absence, private
+migration, provider isolation and file permissions. Downstream consumers can copy the
+public fixtures; `legacy-codex-state.json` is a private persistence fixture only.
+Actual callback shape/version/platform, status-line preservation/setup/removal,
+restart/clear/replay with the receiver, signed sandbox delivery, and widget appearance
+remain separate parent acceptance gates. No live setup or model request is performed
+by these fixture tests.

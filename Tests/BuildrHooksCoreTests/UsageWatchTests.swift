@@ -116,7 +116,7 @@ struct UsageWatchTests {
         #expect(try store.load().providers["codex"]?.snapshot?.collectedAt == 1_000_040_000)
     }
 
-    @Test func temporaryRetryAndIndependentSimulatedProvider() throws {
+    @Test func codexTemporaryRetryAndReservedClaudeV1AreIndependent() throws {
         let clock = WatchClock()
         let failing = WatchProvider(clock)
         failing.failure = .temporaryFailure
@@ -132,11 +132,11 @@ struct UsageWatchTests {
             }
         })
         #expect(failing.starts == [0, 30, 90, 210])
-        #expect(healthy.starts == [0, 300])
+        #expect(healthy.starts.isEmpty) // Unsupported Claude v1 is rejected before provider I/O.
         let state = try store.load()
         #expect(state.providers["codex"]?.snapshot == nil)
         #expect(state.providers["codex"]?.status?.status == .temporaryFailure)
-        #expect(state.providers["claude"]?.status?.status == .ready)
+        #expect(state.providers["claude"] == nil) // Claude v1 cannot enter the durable store.
     }
 
     @Test func persistedRestrictionsApplyAcrossOneShotInstancesAndJitterIsBounded() throws {

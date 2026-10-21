@@ -84,7 +84,7 @@ struct UsageClearTests {
         #expect(runtime.refresh().outcome == .refreshed)
         let fresh = try #require(fixture.durable.providers["codex"]?.snapshot)
         #expect(fresh.revision > after.latestInvalidationRevision)
-        #expect(fresh.collectedAt == old.collectedAt + 30000)
+        #expect(try fresh.collectedAt == #require(old.collectedAt) + 30000)
     }
 
     @Test func restartWithoutSnapshotReplaysOriginalMarkerAndRejectsLateSnapshotOffline() throws {

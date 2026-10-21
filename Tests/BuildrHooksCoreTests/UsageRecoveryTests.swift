@@ -282,7 +282,7 @@ struct UsageRecoveryTests {
         #expect(runtime.refresh().outcome == .throttled)
     }
 
-    @Test func recoveryReplaysEveryAvailableSelectedProviderAsOneCoalescedReply() throws {
+    @Test func recoveryCoalescesCodexAndWithholdsUnsupportedClaudeV1() throws {
         let fixture = RecoveryFixture()
         var runtime = fixture.runtime()
         runtime.additionalFetchers[.claude] = fixture
@@ -291,12 +291,12 @@ struct UsageRecoveryTests {
         fixture.messages = []
         runtime.recover(providers: [.claude, .codex, .codex])
         runtime.recover(providers: [.claude])
-        #expect(fixture.snapshots.count == 2)
-        #expect(fixture.statuses.count == 2)
+        #expect(fixture.snapshots.count == 1)
+        #expect(fixture.statuses.count == 1)
         #expect(fixture.fetchCount == 2)
         let now = Date(timeIntervalSince1970: Double(fixture.time) / 1000)
         let providers = try fixture.snapshots.map { try UsageWire().decodeSnapshot($0, now: now).provider }
-        #expect(Set(providers) == Set([UsageProvider.codex, .claude]))
+        #expect(Set(providers) == Set([UsageProvider.codex]))
     }
 
     @Test func sparseAuthenticationEventRevokesContinuityBeforeSameTickRecovery() {
