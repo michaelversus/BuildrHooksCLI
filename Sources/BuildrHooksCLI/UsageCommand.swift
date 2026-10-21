@@ -52,14 +52,15 @@ struct UsageClearCommand: ParsableCommand {
         commandName: "clear",
         abstract: "Discard retained usage without stopping collection; receipt is not acknowledged."
     )
-    @Option(name: .long, help: "Provider to clear (codex). Explicit selection required.")
+    @Option(name: .long, help: "Provider to clear (codex or claude). Explicit selection required.")
     var provider: [String] = []
     @Flag(name: .long, help: "Emit localCleared and publicationAttempted as JSON; no receiver acknowledgement.")
     var json = false
 
     func validate() throws {
-        guard !provider.isEmpty, provider.allSatisfy({ $0 == "codex" }) else {
-            throw ValidationError("Select --provider codex. Only Codex usage is supported.")
+        guard !provider.isEmpty, Set(provider).count == 1,
+              provider.allSatisfy({ $0 == "codex" || $0 == "claude" }) else {
+            throw ValidationError("Select one --provider codex or --provider claude.")
         }
     }
 
@@ -71,7 +72,10 @@ struct UsageClearCommand: ParsableCommand {
         let execution = makeExecution(nil)
         defer { execution.close() }
         let runtime = execution.runtime
-        let result = execution.coordination.clear(runtime: runtime, cancelled: runtime.isCancelled)
+        guard let selected = provider.first.flatMap(UsageProvider.init(rawValue:)) else {
+            throw ValidationError("Select --provider codex or --provider claude.")
+        }
+        let result = execution.coordination.clear(runtime: runtime, provider: selected, cancelled: runtime.isCancelled)
         runtime.report(result, json: json)
         if result.outcome.exitCode != 0 {
             throw ExitCode(result.outcome.exitCode)
@@ -190,8 +194,12 @@ final class UsageWatchLifecycle {
         recoveryObserver = recoveryCenter.addObserver(
             forName: Notification.Name(UsageRuntime.requestNotification), object: nil, queue: nil
         ) { notification in
-            guard notification.userInfo == nil else { return }
-            state.requestRecovery()
+            if let userInfo = notification.userInfo {
+                guard let request = try? UsageReplayRequest(userInfo: userInfo) else { return }
+                state.requestClaudeRecovery(request.replayRequestID)
+            } else {
+                state.requestRecovery()
+            }
         }
         wakeObserver = wakeCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: nil
@@ -223,6 +231,7 @@ final class UsageWatchState: Sendable {
         var stopped = false
         var woke = false
         var recoveryRequested = false
+        var claudeRecoveryRequests: [String] = []
     }
 
     private let flags = Mutex(Flags())
@@ -242,13 +251,21 @@ final class UsageWatchState: Sendable {
         flags.withLock { $0.recoveryRequested = true }
     }
 
+    func requestClaudeRecovery(_ id: String) {
+        flags.withLock {
+            guard $0.claudeRecoveryRequests.count < 64, !$0.claudeRecoveryRequests.contains(id) else { return }
+            $0.claudeRecoveryRequests.append(id)
+        }
+    }
+
     func takeTriggers() -> [UsageWatchTrigger] {
         flags.withLock { state in
-            defer { state.woke = false; state.recoveryRequested = false }
+            defer { state.woke = false; state.recoveryRequested = false; state.claudeRecoveryRequests = [] }
             var triggers: [UsageWatchTrigger] = state.woke ? [.wake] : []
             if state.recoveryRequested {
                 triggers.append(.recoveryRequested)
             }
+            triggers += state.claudeRecoveryRequests.map { .claudeRecoveryRequested($0) }
             return triggers
         }
     }

@@ -44,6 +44,7 @@ struct ClaudeCommand: ParsableCommand {
         abstract: "Ingest a Claude Code hook event.",
         subcommands: [
             ClaudeToolStartCommand.self,
+            ClaudeStatusLineCommand.self,
             ClaudeSessionStartCommand.self,
             ClaudePromptSubmitCommand.self,
             ClaudeStopCommand.self

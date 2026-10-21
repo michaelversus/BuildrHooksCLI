@@ -26,44 +26,6 @@ public struct UsageWindow: Codable, Equatable, Sendable {
     }
 }
 
-public struct UsageSnapshot: Codable, Equatable, Sendable {
-    public var schemaVersion = 1
-    public var cliVersion: String?
-    public let provider: UsageProvider
-    public let revision: UInt64
-    public let collectedAt: Int64
-    public let windows: [UsageWindow]
-    public init(provider: UsageProvider, revision: UInt64, collectedAt: Int64, windows: [UsageWindow],
-                cliVersion: String? = nil) {
-        self.cliVersion = cliVersion
-        self.provider = provider
-        self.revision = revision
-        self.collectedAt = collectedAt
-        self.windows = windows
-    }
-}
-
-public struct UsageCollectionStatus: Codable, Equatable, Sendable {
-    public var schemaVersion = 1
-    public var cliVersion: String?
-    public let provider: UsageProvider
-    public let revision: UInt64
-    public let observedAt: Int64
-    public let status: UsageStatusCode
-    public let retryAt: Int64?
-    public let latestInvalidationRevision: UInt64
-    public init(provider: UsageProvider, revision: UInt64, observedAt: Int64, status: UsageStatusCode,
-                retryAt: Int64? = nil, latestInvalidationRevision: UInt64 = 0, cliVersion: String? = nil) {
-        self.cliVersion = cliVersion
-        self.provider = provider
-        self.revision = revision
-        self.observedAt = observedAt
-        self.status = status
-        self.retryAt = retryAt
-        self.latestInvalidationRevision = latestInvalidationRevision
-    }
-}
-
 public enum UsageWireError: Error { case invalidPayload }
 
 /// Snapshot and status revision floors are supplied separately by the receiver.
@@ -100,9 +62,16 @@ public struct UsageWire: Sendable {
     }
 
     private func validate(_ snapshot: UsageSnapshot, now: Date) throws {
-        guard snapshot.schemaVersion == 1, snapshot.revision > 0, validVersion(snapshot.cliVersion),
-              validObservation(snapshot.collectedAt, now: now), !snapshot.windows.isEmpty else {
+        guard snapshot.revision > 0, validVersion(snapshot.cliVersion),
+              validObservation(snapshot.timestamp.milliseconds, now: now), !snapshot.windows.isEmpty,
+              validReplayID(snapshot.replayRequestID) else {
             throw UsageWireError.invalidPayload
+        }
+        switch (snapshot.schemaVersion, snapshot.provider, snapshot.scope, snapshot.timestamp) {
+        case (1, .codex, nil, .collected):
+            guard snapshot.replayRequestID == nil else { throw UsageWireError.invalidPayload }
+        case (2, .claude, .provider, .received): break
+        default: throw UsageWireError.invalidPayload
         }
         var identities = Set<String>()
         for window in snapshot.windows {
@@ -111,14 +80,42 @@ public struct UsageWire: Sendable {
                   window.usedPercent.isFinite, window.usedPercent >= 0,
                   window.durationMinutes.map({ $0 > 0 }) ?? true,
                   window.resetsAt.map({ $0 >= 0 }) ?? true else { throw UsageWireError.invalidPayload }
+            if snapshot.provider == .claude {
+                guard window.limitCode == "claude", window.usedPercent <= 100,
+                      window.durationMinutes == (window.role == "primary" ? 300 : 10080) else {
+                    throw UsageWireError.invalidPayload
+                }
+            }
         }
     }
 
     private func validate(_ status: UsageCollectionStatus, now: Date) throws {
-        guard status.schemaVersion == 1, status.revision > 0, validVersion(status.cliVersion),
+        guard status.revision > 0, validVersion(status.cliVersion), validReplayID(status.replayRequestID),
               validObservation(status.observedAt, now: now),
               status.latestInvalidationRevision <= status.revision,
               status.retryAt.map({ $0 >= 0 }) ?? true else { throw UsageWireError.invalidPayload }
+        switch (status.schemaVersion, status.provider, status.scope) {
+        case (1, .codex, nil):
+            guard status.retainedSnapshotRevision == nil, status.receivedAt == nil,
+                  status.replayRequestID == nil else { throw UsageWireError.invalidPayload }
+        case (2, .claude, .provider):
+            guard status.cliVersion != nil,
+                  status.receivedAt.map({ validObservation($0, now: now) && $0 <= status.observedAt }) ?? true,
+                  status.retainedSnapshotRevision.map({
+                      $0 > status.latestInvalidationRevision && $0 <= status.revision
+                  }) ?? true,
+                  status.status != .ready || (status.retainedSnapshotRevision != nil && status.receivedAt != nil),
+                  status.retainedSnapshotRevision != nil || status.receivedAt == nil
+                  || status.status == .usageUnavailable,
+                  status.status != .usageUnavailable || status.retainedSnapshotRevision == nil else {
+                throw UsageWireError.invalidPayload
+            }
+        default: throw UsageWireError.invalidPayload
+        }
+    }
+
+    private func validReplayID(_ value: String?) -> Bool {
+        value.map(validCode) ?? true
     }
 
     private func validVersion(_ version: String?) -> Bool {

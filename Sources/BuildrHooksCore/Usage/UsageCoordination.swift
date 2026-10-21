@@ -90,12 +90,13 @@ public final class UsageCoordination: @unchecked Sendable {
         let (waiting, ready) = classifyClients()
         clients = waiting
         guard !ready.isEmpty else { return }
-        var previous: UsagePrivateRequest.Operation?
+        var previous: UsagePrivateRequest?
         var result: UsageRefreshResult?
         for (descriptor, request) in ready {
-            if previous != request.operation {
+            if previous?.operation != request.operation || previous?.provider != request.provider
+                || request.operation == .capture {
                 result = dispatch(request)
-                previous = request.operation
+                previous = request
             }
             if let result, let data = try? JSONEncoder().encode(result) {
                 _ = Self.sendFrame(descriptor, data: data, deadline: Self.time + 0.2, cancelled: { false })
@@ -135,7 +136,7 @@ public final class UsageCoordination: @unchecked Sendable {
     private func readyRequest(_ client: Client, frame: UsageCoordination.FrameState) -> UsagePrivateRequest? {
         guard frame == .complete,
               let request = try? JSONDecoder().decode(UsagePrivateRequest.self, from: client.data),
-              request.version == 1, request.provider == .codex else { return nil }
+              request.version == 1 else { return nil }
         var byte: UInt8 = 0
         return recv(client.descriptor, &byte, 1, MSG_PEEK) != 0 ? request : nil
     }
@@ -156,7 +157,7 @@ public final class UsageCoordination: @unchecked Sendable {
                     ownedRuntime.isCancelled = { runtime.isCancelled() || cancelled() || Self.time >= deadline }
                     let result = ownedRuntime.dispatch(request)
                     if result.outcome == .cancelled, !cancelled(), !runtime.isCancelled(), Self.time >= deadline {
-                        return runtime.result(.codex, .timeout)
+                        return runtime.result(request.provider, .timeout)
                     }
                     return result
                 }
@@ -164,11 +165,11 @@ public final class UsageCoordination: @unchecked Sendable {
                     return result
                 }
             } catch {
-                return runtime.result(.codex, .coordinationUnavailable)
+                return runtime.result(request.provider, .coordinationUnavailable)
             }
             Thread.sleep(forTimeInterval: 0.02)
         }
-        return runtime.result(.codex, cancelled() ? .cancelled : .timeout)
+        return runtime.result(request.provider, cancelled() ? .cancelled : .timeout)
     }
 
     /// Probe the private owner without collecting or mutating retained state.
@@ -178,11 +179,11 @@ public final class UsageCoordination: @unchecked Sendable {
     }
 
     public func clear(
-        runtime: UsageRuntime, timeout: TimeInterval = 40,
+        runtime: UsageRuntime, provider: UsageProvider = .codex, timeout: TimeInterval = 40,
         cancelled: @escaping @Sendable () -> Bool = { false }
     ) -> UsageRefreshResult {
         refresh(runtime: runtime, timeout: timeout, cancelled: cancelled,
-                request: UsagePrivateRequest(operation: .clear))
+                request: UsagePrivateRequest(operation: .clear, provider: provider))
     }
 
     public func close() {
@@ -222,7 +223,7 @@ extension UsageCoordination {
         guard let connected = try connectToOwner(descriptor, deadline: deadline, cancelled: cancelled) else {
             return nil
         }
-        guard connected else { return timeoutResult(cancelled: cancelled) }
+        guard connected else { return timeoutResult(provider: request.provider, cancelled: cancelled) }
         guard Self.authorized(descriptor) else { throw UsageCoordinationError.unavailable }
         return try exchangeRequest(on: descriptor, deadline: deadline, cancelled: cancelled, request: request)
     }
@@ -268,14 +269,14 @@ extension UsageCoordination {
                                  request: UsagePrivateRequest) throws -> UsageRefreshResult {
         let encoded = try JSONEncoder().encode(request)
         guard Self.sendFrame(descriptor, data: encoded, deadline: deadline, cancelled: cancelled) else {
-            return timeoutResult(cancelled: cancelled)
+            return timeoutResult(provider: request.provider, cancelled: cancelled)
         }
         var data = Data()
         while Self.time < deadline, !cancelled() {
             switch Self.readFrame(descriptor, data: &data) {
             case .complete:
                 let result = try JSONDecoder().decode(UsageRefreshResult.self, from: data)
-                guard result.provider == .codex,
+                guard result.provider == request.provider,
                       result.outcome != .refreshed || (result.freshSnapshot && result.publicationAttempted),
                       result.outcome != .cleared || (result.localCleared && result.publicationAttempted) else {
                     throw UsageCoordinationError.unavailable
@@ -285,11 +286,11 @@ extension UsageCoordination {
             case .waiting: Thread.sleep(forTimeInterval: 0.01)
             }
         }
-        return timeoutResult(cancelled: cancelled)
+        return timeoutResult(provider: request.provider, cancelled: cancelled)
     }
 
-    private func timeoutResult(cancelled: () -> Bool) -> UsageRefreshResult {
-        UsageRefreshResult(provider: .codex, outcome: cancelled() ? .cancelled : .timeout,
+    private func timeoutResult(provider: UsageProvider, cancelled: () -> Bool) -> UsageRefreshResult {
+        UsageRefreshResult(provider: provider, outcome: cancelled() ? .cancelled : .timeout,
                            retryAt: nil, freshSnapshot: false, publicationAttempted: false)
     }
 }

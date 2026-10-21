@@ -187,7 +187,7 @@ struct UsageRuntimeTests {
         let second = try #require(store.load().providers["codex"]?.snapshot)
         let finalState = try #require(store.load().providers["codex"])
         #expect(first.windows == second.windows)
-        #expect(second.collectedAt == first.collectedAt + 60000)
+        #expect(try second.collectedAt == #require(first.collectedAt) + 60000)
         #expect(second.revision > first.revision)
         #expect(try #require(finalState.status).revision > second.revision)
         #expect(recorder.values.filter { $0.0 == UsageRuntime.snapshotNotification }.count == 2)

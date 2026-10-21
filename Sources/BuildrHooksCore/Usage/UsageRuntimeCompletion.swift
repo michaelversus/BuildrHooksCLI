@@ -41,9 +41,10 @@ extension UsageRuntime {
             recovery.unverify(provider)
         }
         reconcileIdentity(fetched.identity, provider: provider, state: &state)
-        let fresh = fetched.snapshot.map {
-            UsageSnapshot(provider: provider, revision: state.revision + 1,
-                          collectedAt: $0.collectedAt, windows: $0.windows)
+        let fresh = fetched.snapshot.flatMap { snapshot -> UsageSnapshot? in
+            guard let collectedAt = snapshot.collectedAt else { return nil }
+            return UsageSnapshot(provider: provider, revision: state.revision + 1,
+                                 collectedAt: collectedAt, windows: snapshot.windows)
         }
         if let fresh {
             if fetched.identity == nil {

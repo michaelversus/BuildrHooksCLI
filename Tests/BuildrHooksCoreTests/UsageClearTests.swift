@@ -84,7 +84,7 @@ struct UsageClearTests {
         #expect(runtime.refresh().outcome == .refreshed)
         let fresh = try #require(fixture.durable.providers["codex"]?.snapshot)
         #expect(fresh.revision > after.latestInvalidationRevision)
-        #expect(fresh.collectedAt == old.collectedAt + 30000)
+        #expect(try fresh.collectedAt == #require(old.collectedAt) + 30000)
     }
 
     @Test func restartWithoutSnapshotReplaysOriginalMarkerAndRejectsLateSnapshotOffline() throws {
@@ -172,6 +172,8 @@ struct UsageClearTests {
         #expect(cleared.status?.status == .throttled && cleared.status?.retryAt == state.retryNotBefore)
         #expect(cleared.retryNotBefore == state.retryNotBefore && cleared.temporaryFailureCount == 3)
         #expect(try stableEncoder().encode(#require(fixture.durable.providers["claude"])) == other)
-        #expect(fixture.runtime().clear(provider: .claude).outcome == .unsupportedProvider)
+        #expect(UsageRuntime(fetcher: fixture, store: fixture, notifier: fixture, cliVersion: "1.2.8")
+            .clear(provider: .claude).outcome == .cleared)
+        #expect(fixture.durable.providers["codex"]?.status == cleared.status)
     }
 }

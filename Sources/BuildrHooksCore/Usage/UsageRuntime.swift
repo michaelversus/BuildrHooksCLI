@@ -43,6 +43,7 @@ public extension UsageFetching {
 
 public enum UsageWatchTrigger: Sendable, Equatable {
     case limitsChanged, authenticationChanged, wake, refresh, recoveryRequested
+    case claudeRecoveryRequested(String)
 }
 
 public protocol UsageNotifying: Sendable {
@@ -175,7 +176,7 @@ public struct UsageRuntime: Sendable {
             output("Unsupported usage provider. Only Codex collection is implemented.")
             return
         }
-        let fetchers = selected.map { additionalFetchers[$0] ?? fetcher }
+        let fetchers = selected.filter { $0 == .codex }.map { additionalFetchers[$0] ?? fetcher }
         fetchers.forEach { $0.beginWatch() }
         defer { fetchers.forEach { $0.close() } }
         prepareRecovery(providers: selected)
@@ -184,11 +185,14 @@ public struct UsageRuntime: Sendable {
         while !isCancelled() {
             control()
             let external = triggers()
-            for provider in selected {
+            for provider in selected where provider == .codex {
                 processWatchProvider(provider, external: external, json: json, pending: &pending, nextPoll: &nextPoll)
             }
             if external.contains(.recoveryRequested) {
                 recover(providers: selected)
+            }
+            for case let .claudeRecoveryRequested(id) in external {
+                recover(providers: [.claude], replayRequestID: id)
             }
             if !isCancelled() {
                 wait(0.1)
@@ -211,7 +215,7 @@ public struct UsageRuntime: Sendable {
             pending.insert(provider)
             events = []
         }
-        let all = external.filter { $0 != .recoveryRequested } + events
+        let all = external.filter(\.requestsCollection) + events
         if all.contains(.authenticationChanged) {
             recovery.unverify(provider)
             prepareRecovery(providers: [provider])
@@ -254,7 +258,7 @@ public struct UsageRuntime: Sendable {
     }
 
     func collect(provider: UsageProvider) -> UsageRefreshResult {
-        guard provider == .codex || additionalFetchers[provider] != nil else {
+        guard provider == .codex else {
             return result(provider, .unsupportedProvider)
         }
         var durable: UsageDurableState

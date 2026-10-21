@@ -64,7 +64,10 @@ struct BuildrHooksCLICommandTests {
     @Test
     func usageClearRequiresSupportedExplicitSelectionAndDescribesDeliveryLimits() throws {
         #expect(throws: (any Error).self) { try UsageClearCommand.parse([]).validate() }
-        #expect(throws: (any Error).self) { try UsageClearCommand.parse(["--provider", "claude"]).validate() }
+        try UsageClearCommand.parse(["--provider", "claude"]).validate()
+        #expect(throws: (any Error).self) {
+            try UsageClearCommand.parse(["--provider", "codex", "--provider", "claude"]).validate()
+        }
         let command = try UsageClearCommand.parse(["--provider", "codex", "--provider", "codex", "--json"])
         try command.validate()
         #expect(command.provider == ["codex", "codex"] && command.json)
