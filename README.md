@@ -457,7 +457,7 @@ String identifying the publishing executable using the same source as
 version, independently of repository hook markers. Replay preserves observation times,
 revisions and invalidation markers; a newer sender version does not imply fresh usage.
 Older caches remain readable and an absent version means unknown. See the
-[authoritative v1 wire contract](docs/account-usage-wire.md).
+[authoritative usage wire contracts](docs/account-usage-wire.md).
 
 Minimal state and per-provider revisions are atomically retained with owner-only file
 permissions at `~/.codex/buildr-artifacts/account-usage.json`. Failure preserves a
@@ -496,8 +496,12 @@ attempted. Error diagnostics contain only fixed outcome codes, never raw Codex e
 Authentication failure, timeout, temporary failure, throttling, and absent usable limits
 never become zero usage or refresh the old observation. A provider retry restriction,
 when supplied, is persisted and returned as `retryAt`. Argument validation uses the CLI parser's
-standard errors. The additive capabilities fields `accountUsageRefreshProviders`, `accountUsageWatchProviders`, `accountUsageClearProviders`, and
-`accountUsageSchemaVersions` advertise refresh/watch/clear support and schema 1.
+standard errors. Capabilities advertise Codex-only refresh/watch/service providers,
+Codex and Claude clear providers, and schema versions `[1, 2]`. Additive
+`accountUsageCaptureProviders` and `accountUsageSetupProviders` advertise Claude's
+explicit callback/setup commands. Callback support does not imply Claude polling.
+See the [delivery and operator handoff](docs/claude-usage-delivery.md) for compatibility,
+release evidence and the separate manual acceptance checklist.
 
 The shared notification contract is documented in [account usage wire](docs/account-usage-wire.md).
 

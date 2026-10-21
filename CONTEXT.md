@@ -29,8 +29,16 @@ A named BuildrAI command handler in a selected project's `.claude/settings.local
 _Avoid_: global Claude hook, shared hook
 
 **Account usage collector**:
-An explicitly enabled account-level monitor, managed by BuildrHooksCLI, that gathers usage for a provider's currently authenticated account independently of project hooks. The first release supports Codex, with other providers reserved in the design.
+An explicitly enabled account-level monitor that gathers Codex usage for its currently authenticated account independently of project hooks. It is distinct from Claude's activity-driven reported provider usage.
 _Avoid_: hook monitor, project usage collector
+
+**Reported provider usage**:
+Claude quota reported by a Claude Code session without supported account attribution. Concurrent sessions or account changes may report another account; configuration roots do not identify accounts.
+_Avoid_: Claude account usage, account-specific Claude capacity
+
+**Report receipt time**:
+The time the bridge accepts a valid Claude report, including unchanged quota. It does not establish when Claude measured the quota, and replay does not refresh it.
+_Avoid_: Claude collection time, provider freshness
 
 **Background usage monitoring**:
 BuildrAI's continued receipt of account usage while its windows are closed. Quitting BuildrAI ends this monitoring, independently of the account usage collector's lifetime.
@@ -49,11 +57,11 @@ A provider-specific report of the collector's condition, separate from its last 
 _Avoid_: usage value, raw provider error
 
 **Stale usage snapshot**:
-An account usage snapshot whose collection time is at least fifteen minutes old. Its observed values and original collection time remain available despite its age.
+An account usage snapshot whose collection time is at least fifteen minutes old, or a Claude report whose receipt time is at least that old. Its values and original timestamp retain their original meaning despite its age.
 _Avoid_: empty usage, zero usage
 
 **Account continuity**:
-Confirmation that retained account usage belongs to the provider's currently authenticated account. Without that confirmation, retained usage is withheld until a fresh observation is available.
+Confirmation that retained Codex account usage belongs to its currently authenticated account. Without that confirmation, retained usage is withheld until a fresh observation is available; Claude reported provider usage has no such attribution.
 _Avoid_: unchanged authentication mode, same provider
 
 **Clear retained usage**:
