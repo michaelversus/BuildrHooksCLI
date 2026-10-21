@@ -80,8 +80,8 @@ record whose latest `entrypoint` is `claude-desktop` emits:
 Missing, malformed, mismatched, or non-Desktop transcript evidence emits no
 surface. A session later resumed in a terminal likewise emits no Desktop
 surface. BuildrAI's host app owns project selection and the safe management of
-its named `.claude/settings.local.json` entries; this CLI does not edit Claude
-settings.
+its named `.claude/settings.local.json` hook entries. Explicit CLI-owned status-line
+usage setup is separate; see [Claude reported usage](docs/claude-statusline.md).
 
 ## 🛠️ Installation
 
@@ -399,7 +399,8 @@ The package uses the Swift Testing framework and includes coverage for CLI entry
 
 ## Current Limitations
 
-- Claude settings installation and repair are owned by the BuildrAI host app.
+- Claude lifecycle hook installation and repair are owned by the BuildrAI host app.
+  Explicit status-line usage setup/removal is owned by this CLI.
 - Only `session-start`, `prompt-submit`, and `stop` are supported.
 - The tool assumes macOS for distributed notifications.
 - Queue persistence is filesystem-based and repository-local.
@@ -432,7 +433,9 @@ buildrhooks usage refresh --provider codex --json --codex-path /absolute/path/to
 ```
 
 The provider selection is explicit and repeatable; repeating `codex` collects it once.
-Only Codex is currently supported. Install Codex separately and sign in using its own
+Network account usage collection supports Codex. Claude supports activity-driven
+[reported provider usage](docs/claude-statusline.md) through explicit status-line setup.
+Install Codex separately and sign in using its own
 commands. The collector finds an executable on `PATH`, or uses the absolute
 `--codex-path` override. It never forces login or reads authentication files.
 
@@ -512,7 +515,8 @@ pending work; incomplete results are not published. Exit code 18 denotes cancell
 of a refresh. A watch does not imply that the BuildrAI receiver is running.
 Values are stale once at least fifteen minutes old, using their original collection
 time; failures never change that time. Independent provider state is reserved for
-future implementations; selecting Claude currently returns a validation error.
+network collection; selecting Claude for refresh/watch/service returns a validation error.
+Claude capture and `usage clear --provider claude` use the separate status-line path.
 
 Foreground watch answers `ai.buildrai.account-usage-requested` notifications with no
 userInfo, replaying selected available providers at most once per second globally.
@@ -532,7 +536,8 @@ requests arriving during collection receive the next actual result, usually a
 
 Refresh waits at most forty seconds, including coordination and the thirty-second
 fetch deadline, and responds to interruption. The private channel accepts
-version 1 refresh, clear, and status-ping requests for Codex, bounds frames to 4 KiB, caps queued clients,
+version 1 refresh/clear/status-ping requests plus normalized Claude capture and
+provider-specific clear, bounds frames to 4 KiB, caps queued clients,
 and drops incomplete requests after two seconds once accepted. Disconnected clients
 do not stop the shared collector. Endpoint recovery requires holding the lock;
 commands never remove a live collector's endpoint or lock file. Distributed recovery

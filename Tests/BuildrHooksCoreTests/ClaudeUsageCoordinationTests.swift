@@ -14,7 +14,13 @@ extension UsageCoordinationTests {
         #expect(UsageCoordination(cacheURL: store.fileURL).refresh(runtime: runtime).outcome == .refreshed)
         let codex = try #require(store.load().providers["codex"]?.snapshot)
         let server = UsageCoordination(cacheURL: store.fileURL)
-        #expect(try server.acquire())
+        let acquireDeadline = UsageCoordination.time + 1
+        var acquired = try server.acquire()
+        while !acquired, UsageCoordination.time < acquireDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+            acquired = try server.acquire()
+        }
+        #expect(acquired)
         try server.startServing()
         defer { server.close() }
         let primary = UsageWindow(limitCode: "claude", role: "primary", usedPercent: 0, durationMinutes: 300)
