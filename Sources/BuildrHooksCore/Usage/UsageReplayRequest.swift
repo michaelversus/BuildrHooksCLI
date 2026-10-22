@@ -1,6 +1,6 @@
 import Foundation
 
-/// Additive recovery envelope. A nil userInfo remains the legacy Codex request.
+/// Additive recovery envelope. Nil object and userInfo remain the legacy Codex request.
 /// Correlation is an opaque bounded token, never proof of sender identity.
 public struct UsageReplayRequest: Equatable, Sendable {
     public let replayRequestID: String
@@ -19,6 +19,18 @@ public struct UsageReplayRequest: Equatable, Sendable {
             throw UsageWireError.invalidPayload
         }
         try self.init(replayRequestID: value)
+    }
+
+    /// Sandboxed senders cannot attach a userInfo dictionary to distributed notifications.
+    public init(notificationObject: Any?, userInfo: [AnyHashable: Any]?) throws {
+        if let notificationObject {
+            guard userInfo == nil, let object = notificationObject as? String,
+                  object.hasPrefix("claude-replay:") else { throw UsageWireError.invalidPayload }
+            try self.init(replayRequestID: String(object.dropFirst("claude-replay:".count)))
+        } else {
+            guard let userInfo else { throw UsageWireError.invalidPayload }
+            try self.init(userInfo: userInfo)
+        }
     }
 
     public var userInfo: [AnyHashable: Any] {

@@ -1,5 +1,26 @@
 # Claude usage delivery and acceptance handoff
 
+## Sandbox replay repair (2026-10-22, release pending)
+
+Stable 1.2.10 delivers Claude capture and the Desktop mod, but its correlated
+recovery request uses a userInfo dictionary that sandboxed BuildrAI cannot send.
+Live callbacks can therefore display quota while app restart/re-enable recovery
+fails with No response. The running signed app's CoreFoundation log confirmed
+that posting the notification was thwarted by sandboxing; the same responder
+answered an unsandboxed diagnostic request with the retained snapshot/status pair.
+
+The source repair uses `object="claude-replay:<token>"`, `userInfo=nil` for Claude
+requests. The bridge retains legacy nil-object/nil-userInfo Codex recovery and
+accepts the earlier dictionary envelope for unsandboxed callers. Reply schema,
+receipt timestamps, revisions, clear and provider boundaries are unchanged.
+See [the wire contract](account-usage-wire.md#correlated-recovery-and-private-persistence).
+
+This repair requires matching app and CLI code. Do not infer availability from
+1.2.10's capture/mod capabilities, install an unreleased binary automatically,
+or invent a minimum version for the pending release. Release/upgrade, restarting
+the old responder, and quiet signed-app replay/widget acceptance remain explicit
+operator steps. The sections below retain the original #32 delivery history.
+
 This is the bridge implementation handoff for specification [#32](https://github.com/michaelversus/BuildrHooksCLI/issues/32)
 and delivery issues #33–#36. It separates automated bridge evidence from release,
 Claude operator, signed sandbox and widget evidence. Parent #32 stays open while
