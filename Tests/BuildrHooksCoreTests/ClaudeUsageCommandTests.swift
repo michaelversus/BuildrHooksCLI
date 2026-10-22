@@ -5,6 +5,23 @@ import Foundation
 import Testing
 
 struct ClaudeUsageCommandTests {
+    @Test func sandboxObjectRequestsPreserveCorrelationAndLegacyCodexRecovery() {
+        let center = NotificationCenter()
+        let lifecycle = UsageWatchLifecycle(signalNumbers: [], recoveryCenter: center, wakeCenter: NotificationCenter())
+        defer { lifecycle.close() }
+        let name = Notification.Name(UsageRuntime.requestNotification)
+        center.post(name: name, object: "claude-replay:recovery-1", userInfo: nil)
+        #expect(lifecycle.takeTriggers() == [.claudeRecoveryRequested("recovery-1")])
+        center.post(name: name, object: nil, userInfo: nil)
+        #expect(lifecycle.takeTriggers() == [.recoveryRequested])
+        for object in ["", "unknown", "claude-replay:", "claude-replay:bad token",
+                       "claude-replay:" + String(repeating: "a", count: 129)] {
+            center.post(name: name, object: object, userInfo: nil)
+        }
+        center.post(name: name, object: "claude-replay:recovery-1", userInfo: ["replayRequestID": "other"])
+        #expect(lifecycle.takeTriggers().isEmpty)
+    }
+
     @Test func lifecyclePreservesDistinctCorrelatedRequestsAndRejectsUnboundedOrExtraFields() throws {
         let center = NotificationCenter()
         let lifecycle = UsageWatchLifecycle(signalNumbers: [], recoveryCenter: center, wakeCenter: NotificationCenter())

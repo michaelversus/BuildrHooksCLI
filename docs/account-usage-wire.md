@@ -164,7 +164,7 @@ sessions or account changes may report another account. A configuration root is 
 setup scope, never an account. Codex keeps the v1 account-continuity behavior above;
 Claude is never interpreted as Codex v1 and has no account fingerprint or label.
 
-The existing notification names and `object=nil` remain unchanged. Snapshot/status
+The existing notification names remain unchanged. Snapshot/status keep `object=nil`; their
 notifications still carry one UTF-8 JSON string in `userInfo["payload"]`, bounded to
 64 KiB. Provider strings and replay tokens do not authenticate local senders.
 
@@ -232,12 +232,23 @@ a gated cache; snapshot arrival alone is not an authoritative recovery completio
 
 ### Correlated recovery and private persistence
 
-A Claude recovery request extends `ai.buildrai.account-usage-requested` additively,
-with `object=nil` and exactly `userInfo["replayRequestID"]` containing an opaque token.
+A Claude recovery request extends `ai.buildrai.account-usage-requested` additively.
+Sandboxed senders use `object="claude-replay:<token>"` and `userInfo=nil`.
+Apple forbids userInfo dictionaries on distributed notifications sent by sandboxed
+apps. The earlier `object=nil` plus exactly `userInfo["replayRequestID"]` shape is
+still accepted for existing unsandboxed callers, but cannot work from BuildrAI.
 `UsageReplayRequest` validates the token as 1...128 UTF-8 ASCII letters, digits,
-hyphen, dot or underscore. Replies echo `replayRequestID` in their JSON payload;
-the same bound applies to snapshot/status metadata. This is correlation only.
-A nil-userInfo request retains Codex compatibility. Other request shapes are rejected.
+hyphen, dot or underscore. Replies echo the token, without the `claude-replay:`
+prefix, as `replayRequestID` in their JSON payload. The same bound applies to
+snapshot/status metadata. This is correlation only, not sender authentication.
+Only a request with both object and userInfo nil retains legacy Codex behavior.
+Mixed envelopes, unknown objects and malformed tokens are rejected.
+
+This object envelope requires a bridge release containing the sandbox replay repair;
+released 1.2.10 does not recognize it. It changes neither schema-v2 reply payloads
+nor stored revisions, receipt timestamps or provider-specific clear behavior.
+Watch/service/refresh remain Codex-only. A new live Claude callback can still arrive
+without a replay responder; it is distinct from restart/re-enable recovery.
 
 An available existing watch/service responder supplies authoritative Claude retained
 revision or absence without polling Claude or changing account authentication.

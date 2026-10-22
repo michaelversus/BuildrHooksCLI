@@ -194,8 +194,10 @@ final class UsageWatchLifecycle {
         recoveryObserver = recoveryCenter.addObserver(
             forName: Notification.Name(UsageRuntime.requestNotification), object: nil, queue: nil
         ) { notification in
-            if let userInfo = notification.userInfo {
-                guard let request = try? UsageReplayRequest(userInfo: userInfo) else { return }
+            if notification.object != nil || notification.userInfo != nil {
+                guard let request = try? UsageReplayRequest(
+                    notificationObject: notification.object, userInfo: notification.userInfo
+                ) else { return }
                 state.requestClaudeRecovery(request.replayRequestID)
             } else {
                 state.requestRecovery()
