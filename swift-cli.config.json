@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "packagePath": ".",
+  "build": {
+    "configuration": "debug",
+    "scratchPath": ".build",
+    "arguments": [
+      "--disable-sandbox"
+    ]
+  },
+  "staging": {
+    "configuration": "release"
+  },
+  "defaultProduct": "BuildrHooksCLI",
+  "products": {
+    "BuildrHooksCLI": {
+      "executable": "buildrhooks",
+      "resources": [
+        "BuildrHooksCLI_BuildrHooksCLI.bundle"
+      ],
+      "smoke": [
+        {
+          "arguments": [
+            "--version"
+          ],
+          "timeout": 10
+        },
+        {
+          "arguments": [
+            "--help"
+          ],
+          "stdoutContains": "Relay hook events",
+          "timeout": 10
+        },
+        {
+          "arguments": [
+            "claude",
+            "mod",
+            "setup",
+            "--directory",
+            "smoke-mod",
+            "--apply"
+          ],
+          "stdoutContains": "Prepared.",
+          "timeout": 10
+        }
+      ]
+    }
+  },
+  "tests": {
+    "parallel": false,
+    "coverage": true
+  },
+  "quality": {
+    "tools": [
+      "swiftformat",
+      "swiftlint"
+    ],
+    "paths": [
+      "Package.swift",
+      "Sources",
+      "Tests"
+    ]
+  },
+  "timeout": 600
+}
