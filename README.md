@@ -102,7 +102,7 @@ buildrhooks
 ### 🔨 Build From Source
 
 ```bash
-scripts/build.sh --configuration release
+swift build -c release
 ```
 
 Run the built executable directly:

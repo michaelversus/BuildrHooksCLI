@@ -4,7 +4,7 @@ bindir = $(prefix)/bin
 
 # Command building targets.
 build:
-	scripts/build.sh --configuration release
+	swift build -c release --disable-sandbox
 
 install: build
 	install -d "$(bindir)"

@@ -20,8 +20,9 @@ checkout's `runtime/swift_cli` directory. This override does not install a launc
 | `scripts/quality.sh --fix` | Explicit corrections followed by final checks; review the diff. |
 | `scripts/stage.sh` | Release build, renamed `buildrhooks`, adjacent SwiftPM resource bundle and temporary smoke checks. |
 
-`make build` still creates the release product with `--disable-sandbox` through the
-build wrapper. `make install`/`uninstall`, Homebrew, hooks and release automation
+`make build` retains its direct release command with `--disable-sandbox`, so
+Homebrew/source installation does not require the development launcher.
+`make install`/`uninstall`, Homebrew, hooks and release automation
 remain project-owned. The CI test command retains its existing serial/coverage
 policy. The scratch path stays `.build` because some existing tests use its debug
 binary. Select the project's intended Xcode environment before execution; the
