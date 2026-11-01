@@ -18,3 +18,10 @@ Before Swift builds, tests, quality checks or staged packaging verification, rea
 `docs/swift-cli.md` and use the `swift-cli-build` skill with the repository's
 `scripts/build.sh`, `scripts/test.sh`, `scripts/quality.sh` and `scripts/stage.sh`
 wrappers. Installation, Homebrew and release automation remain project-owned.
+
+### Native issue workflows
+
+For a single ticket, use `native-ticket`. For a parent spec and its direct child
+dependency graph, use `native-spec`. Before setup, planning, launch or recovery,
+read `docs/agents/native-workflows.md` and the selected skill. The checked-in
+`workflow.config.json` owns base, check scopes and repair limits.

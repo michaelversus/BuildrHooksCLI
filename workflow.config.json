@@ -1,0 +1,28 @@
+{
+  "base_branch": "main",
+  "repair_limit": 2,
+  "spec_repair_limit": 2,
+  "ticket_checks": [
+    {
+      "argv": ["scripts/build.sh"],
+      "timeout_seconds": 900
+    },
+    {
+      "argv": ["scripts/quality.sh", "--check"],
+      "timeout_seconds": 300
+    }
+  ],
+  "spec_checks": [
+    {
+      "argv": ["scripts/test.sh"],
+      "timeout_seconds": 1200
+    },
+    {
+      "argv": ["scripts/stage.sh"],
+      "timeout_seconds": 1200
+    }
+  ],
+  "computer_acceptance": {
+    "enabled": false
+  }
+}

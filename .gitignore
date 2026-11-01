@@ -1,6 +1,7 @@
 .build/
 .swiftpm/
 .buildrai/
+/.afk/
 # BEGIN MySkills managed links
 /.agents/skills/foundation-models-on-device
 /.agents/skills/swift-cli-build
