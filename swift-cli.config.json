@@ -58,6 +58,7 @@
       "swiftlint"
     ],
     "paths": [
+      "Package.swift",
       "Sources",
       "Tests"
     ]
