@@ -1,3 +1,13 @@
 .build/
 .swiftpm/
 .buildrai/
+# BEGIN MySkills managed links
+/.agents/skills/foundation-models-on-device
+/.agents/skills/swift-cli-build
+/.agents/skills/swift-concurrency
+/.agents/skills/swift-testing-expert
+/.claude/skills/foundation-models-on-device
+/.claude/skills/swift-cli-build
+/.claude/skills/swift-concurrency
+/.claude/skills/swift-testing-expert
+# END MySkills managed links

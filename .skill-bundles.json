@@ -1,0 +1,25 @@
+{
+  "bundles": [
+    "swift",
+    "swift-cli"
+  ],
+  "skills": {
+    "foundation-models-on-device": {
+      "bundle": "swift",
+      "name": "foundation-models-on-device"
+    },
+    "swift-cli-build": {
+      "bundle": "swift-cli",
+      "name": "swift-cli-build"
+    },
+    "swift-concurrency": {
+      "bundle": "swift",
+      "name": "swift-concurrency"
+    },
+    "swift-testing-expert": {
+      "bundle": "swift",
+      "name": "swift-testing-expert"
+    }
+  },
+  "version": 1
+}

@@ -102,7 +102,7 @@ buildrhooks
 ### 🔨 Build From Source
 
 ```bash
-swift build -c release
+scripts/build.sh --configuration release
 ```
 
 Run the built executable directly:
@@ -118,6 +118,10 @@ make install
 ```
 
 ## 🧪 Development
+
+Development wrappers use the shared MySkills Swift CLI runtime. See
+[setup, staging and migration](docs/swift-cli.md) before using them.
+
 
 This project uses SwiftFormat and SwiftLint in strict mode. Install both tools
 and enable the tracked git hook before pushing changes:
@@ -390,10 +394,10 @@ A hook producer usually does something like this:
 
 ## Testing
 
-Run the test suite with:
+Run the serial Swift Testing suite with coverage:
 
 ```bash
-swift test
+scripts/test.sh
 ```
 
 The package uses the Swift Testing framework and includes coverage for CLI entrypoint behavior, repository-root discovery, queue writing, payload validation, and version configuration.
