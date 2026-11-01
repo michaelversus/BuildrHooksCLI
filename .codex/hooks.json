@@ -1,51 +1,91 @@
 {
-  "hooks" : {
-    "BeforeToolCall" : [
+  "hooks": {
+    "BeforeToolCall": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "buildrhooks codex tool-start",
-            "timeout" : 30,
-            "type" : "command"
+            "command": "buildrhooks codex tool-start",
+            "timeout": 30,
+            "type": "command"
           }
         ],
-        "matcher" : null
+        "matcher": null
       }
     ],
-    "SessionStart" : [
+    "SessionStart": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "buildrhooks codex session-start",
-            "timeout" : 30,
-            "type" : "command"
+            "command": "buildrhooks codex session-start",
+            "timeout": 30,
+            "type": "command"
           }
         ],
-        "matcher" : null
+        "matcher": null
       }
     ],
-    "Stop" : [
+    "Stop": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "buildrhooks codex stop",
-            "timeout" : 30,
-            "type" : "command"
+            "command": "buildrhooks codex stop",
+            "timeout": 30,
+            "type": "command"
           }
         ],
-        "matcher" : null
+        "matcher": null
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nsbuilder/.local/share/myskills/runner/bin/python /Users/nsbuilder/GitHub/MySkills/afk/codex/native_runtime.py hook --index /Users/nsbuilder/GitHub/BuildrHooksCLI/.git/afk-native-active.json",
+            "timeout": 10
+          }
+        ]
       }
     ],
-    "UserPromptSubmit" : [
+    "UserPromptSubmit": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "buildrhooks codex prompt-submit",
-            "timeout" : 30,
-            "type" : "command"
+            "command": "buildrhooks codex prompt-submit",
+            "timeout": 30,
+            "type": "command"
           }
         ],
-        "matcher" : null
+        "matcher": null
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nsbuilder/.local/share/myskills/runner/bin/python /Users/nsbuilder/GitHub/MySkills/afk/codex/native_runtime.py hook --index /Users/nsbuilder/GitHub/BuildrHooksCLI/.git/afk-native-active.json",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nsbuilder/.local/share/myskills/runner/bin/python /Users/nsbuilder/GitHub/MySkills/afk/codex/native_runtime.py hook --index /Users/nsbuilder/GitHub/BuildrHooksCLI/.git/afk-native-active.json",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nsbuilder/.local/share/myskills/runner/bin/python /Users/nsbuilder/GitHub/MySkills/afk/codex/native_runtime.py hook --index /Users/nsbuilder/GitHub/BuildrHooksCLI/.git/afk-native-active.json",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

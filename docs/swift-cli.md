@@ -2,7 +2,8 @@
 
 Select the MySkills `swift` and `swift-cli` bundles saved in `.skill-bundles.json`.
 The former provides concurrency, Swift Testing and Foundation Models expertise;
-the latter provides `swift-cli-build`. Repository-owned Ralph skills remain local.
+the latter provides `swift-cli-build`. Issue orchestration uses the shared common
+skills described in [native workflows](agents/native-workflows.md).
 
 Merge the dependent MySkills PR first, update a durable reviewed MySkills checkout,
 then run its `scripts/install-swift-cli-project.sh` and `myskills sync` in this repo.
