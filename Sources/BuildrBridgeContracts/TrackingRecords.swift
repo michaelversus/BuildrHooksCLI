@@ -65,12 +65,15 @@ public struct TrackingResult: Codable, Sendable {
     public let status: Status
     public let action: String
     public let records: [TrackingRecord]
+    public let rewrites: [TrackingRewriteRecord]
 
-    public init(version: Int, status: Status, action: String, records: [TrackingRecord]) {
+    public init(version: Int, status: Status, action: String, records: [TrackingRecord],
+                rewrites: [TrackingRewriteRecord] = []) {
         self.version = version
         self.status = status
         self.action = action
         self.records = records
+        self.rewrites = rewrites
     }
 }
 
@@ -97,5 +100,69 @@ public extension BridgeValidator {
         let recordID = "commit-" + digest.map { String(format: "%02x", $0) }.joined()
         return BridgeCommitReceipt(recordID: recordID, repository: proof.repository,
                                    session: proof.session, commit: proof.headAfter)
+    }
+}
+
+/// Explicit producer-supplied transformation evidence, with no replacement session attribution.
+public struct TrackingRewriteExecution: Codable, Equatable, Sendable {
+    public var invocationID: String
+    public var repository: BridgeRepository
+    public var rootPath: String
+    public var kind: BridgeRewriteRecord.Kind
+    public var mappings: [BridgeRewritePair]
+
+    public init(invocationID: String, repository: BridgeRepository, rootPath: String,
+                kind: BridgeRewriteRecord.Kind, mappings: [BridgeRewritePair]) {
+        self.invocationID = invocationID
+        self.repository = repository
+        self.rootPath = rootPath
+        self.kind = kind
+        self.mappings = mappings
+    }
+}
+
+public struct TrackingRewriteRecord: Codable, Equatable, Sendable {
+    public let version: Int
+    public let scope: BridgeScope
+    public let receipt: BridgeRewriteRecord
+    public let execution: TrackingRewriteExecution
+    public let recordedAt: Double
+
+    public init(version: Int, scope: BridgeScope, receipt: BridgeRewriteRecord,
+                execution: TrackingRewriteExecution, recordedAt: Double) {
+        self.version = version
+        self.scope = scope
+        self.receipt = receipt
+        self.execution = execution
+        self.recordedAt = recordedAt
+    }
+}
+
+public extension BridgeValidator {
+    static func validate(_ proof: TrackingRewriteExecution, scope: BridgeScope) throws -> BridgeRewriteRecord {
+        try validate(scope)
+        try requireID(proof.invocationID)
+        guard proof.repository == scope.repository, proof.rootPath == scope.rootPath else {
+            throw BridgeValidationError.scopeMismatch
+        }
+        let identity = [scope.repository.host, scope.repository.owner, scope.repository.name,
+                        scope.projectID, scope.rootPath, proof.invocationID]
+        let digest = try SHA256.hash(data: JSONEncoder().encode(identity))
+        let recordID = "rewrite-" + digest.map { String(format: "%02x", $0) }.joined()
+        let receipt = BridgeRewriteRecord(recordID: recordID, repository: proof.repository,
+                                          kind: proof.kind, mappings: proof.mappings)
+        try validate(receipt, scope: scope)
+        return receipt
+    }
+}
+
+public extension TrackingResult {
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        status = try values.decode(Status.self, forKey: .status)
+        action = try values.decode(String.self, forKey: .action)
+        records = try values.decode([TrackingRecord].self, forKey: .records)
+        rewrites = try values.decodeIfPresent([TrackingRewriteRecord].self, forKey: .rewrites) ?? []
     }
 }

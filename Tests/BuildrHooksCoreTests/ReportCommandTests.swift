@@ -22,7 +22,7 @@ struct ReportCommandTests {
 
     @Test func executableCapabilitiesAdvertisePreparation() {
         #expect(BuildrHooksCapabilities.current.reportingTracking.implementedOperations == [
-            .discover, .resolve, .prepare, .finalize, .cancel, .recordCommit, .acknowledge
+            .discover, .resolve, .prepare, .finalize, .cancel, .recordCommit, .recordRewrite, .acknowledge
         ])
     }
 

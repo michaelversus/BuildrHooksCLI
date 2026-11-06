@@ -9,11 +9,12 @@ struct TrackingCommandExecution {
     var now: () -> Double = { Date().timeIntervalSince1970 }
     var output: (String) -> Void = { print($0) }
 
-    func run(scopePath: String, executionPath: String?, acknowledgementPath: String? = nil) throws {
+    func run(scopePath: String, executionPath: String?,
+             acknowledgementPath: String? = nil, rewritePath: String? = nil) throws {
         let result: TrackingResult
         do {
             result = try perform(scopePath: scopePath, executionPath: executionPath,
-                                 acknowledgementPath: acknowledgementPath)
+                                 acknowledgementPath: acknowledgementPath, rewritePath: rewritePath)
         } catch let failure as TrackingFailure {
             result = .init(version: 1, status: failure.status, action: failure.action, records: [])
         } catch let failure as ReportExchangeError {
@@ -25,7 +26,10 @@ struct TrackingCommandExecution {
             result = .init(version: 1, status: status, action: failure.failure.action, records: [])
         } catch {
             result = .init(version: 1, status: .invalidInput,
-                           action: "Check owned v1 files, full commit IDs and project scope.", records: [])
+                           action: "Check owned v1 files, full commit IDs and scope. "
+                               + "Rewrites require explicit pairs, amend/rebase/explicit kind and invocation ID. "
+                               + "Deletions and inferred mappings are unsupported.",
+                           records: [])
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -37,7 +41,7 @@ struct TrackingCommandExecution {
     }
 
     private func perform(scopePath: String, executionPath: String?,
-                         acknowledgementPath: String?) throws -> TrackingResult {
+                         acknowledgementPath: String?, rewritePath: String?) throws -> TrackingResult {
         let scope = try JSONDecoder().decode(BridgeScope.self, from: read(URL(fileURLWithPath: scopePath)))
         try BridgeValidator.validate(scope)
         let directory = try authorizedDirectory(scope)
@@ -49,6 +53,7 @@ struct TrackingCommandExecution {
         let stateURL = directory.appending(path: "records.json")
         var ledger = try load(stateURL, scope: scope)
         let records: [TrackingRecord]
+        var rewrites: [TrackingRewriteRecord] = []
         let status: TrackingResult.Status
         if let executionPath {
             let proof = try JSONDecoder().decode(TrackingCommitExecution.self,
@@ -70,17 +75,43 @@ struct TrackingCommandExecution {
                 records = [record]
                 status = .queued
             }
+        } else if let rewritePath {
+            let queued = try queueRewrite(rewritePath, scope: scope, ledger: &ledger, stateURL: stateURL)
+            rewrites = queued.records
+            status = queued.status
+            records = []
         } else if let acknowledgementPath {
             try acknowledge(acknowledgementPath, scope: scope, ledger: &ledger, stateURL: stateURL)
             records = []
             status = .acknowledged
         } else {
             records = ledger.entries.filter { !$0.acknowledged }.map(\.record)
+            rewrites = (ledger.rewrites ?? []).filter { !$0.acknowledged }.map(\.record)
             status = .replay
         }
         return .init(version: 1, status: status,
                      action: "Retain receipts. Acknowledge after durable idempotent app ingestion.",
-                     records: records)
+                     records: records, rewrites: rewrites)
+    }
+
+    private func queueRewrite(_ path: String, scope: BridgeScope, ledger: inout TrackingLedger,
+                              stateURL: URL) throws
+        -> (records: [TrackingRewriteRecord], status: TrackingResult.Status) {
+        let proof = try JSONDecoder().decode(TrackingRewriteExecution.self, from: read(URL(fileURLWithPath: path)))
+        let receipt = try BridgeValidator.validate(proof, scope: scope)
+        if let existing = ledger.rewrites?.first(where: { $0.record.receipt.recordID == receipt.recordID }) {
+            guard existing.record.execution == proof else {
+                throw TrackingFailure(.invalidInput, "This rewrite ID identifies different explicit mappings.")
+            }
+            return ([existing.record], existing.acknowledged ? .acknowledged : .queued)
+        }
+        let instant = now()
+        guard instant.isFinite, instant >= 0 else { throw BridgeValidationError.invalidTime }
+        let record = TrackingRewriteRecord(version: 1, scope: scope, receipt: receipt,
+                                           execution: proof, recordedAt: instant)
+        ledger.rewrites = (ledger.rewrites ?? []) + [.init(record: record, acknowledged: false)]
+        try save(ledger, to: stateURL)
+        return ([record], .queued)
     }
 
     private func acknowledge(_ acknowledgementPath: String, scope: BridgeScope,
@@ -91,7 +122,8 @@ struct TrackingCommandExecution {
                                     createdAt: 0, deadline: 1, body: .acknowledge(acknowledgement))
         try BridgeValidator.validate(request, expectedScope: scope)
         let identifiers = Set(acknowledgement.recordIDs)
-        guard identifiers.isSubset(of: Set(ledger.entries.map(\.record.receipt.recordID))) else {
+        guard identifiers.isSubset(of: Set(ledger.entries.map(\.record.receipt.recordID)
+                + (ledger.rewrites ?? []).map(\.record.receipt.recordID))) else {
             throw TrackingFailure(.invalidInput, "Acknowledge only exact records durably ingested for this scope.")
         }
         let matching = ledger.entries.indices.filter {
@@ -99,6 +131,12 @@ struct TrackingCommandExecution {
         }
         for index in matching {
             ledger.entries[index].acknowledged = true
+        }
+        if var rewrites = ledger.rewrites {
+            for index in rewrites.indices where identifiers.contains(rewrites[index].record.receipt.recordID) {
+                rewrites[index].acknowledged = true
+            }
+            ledger.rewrites = rewrites
         }
         try save(ledger, to: stateURL)
     }
@@ -146,8 +184,10 @@ struct TrackingCommandExecution {
     private func load(_ url: URL, scope: BridgeScope) throws -> TrackingLedger {
         guard FileManager.default.fileExists(atPath: url.path) else { return .init(version: 1, entries: []) }
         let ledger = try JSONDecoder().decode(TrackingLedger.self, from: read(url))
-        guard ledger.version == 1, ledger.entries.count <= 4096,
-              Set(ledger.entries.map(\.record.receipt.recordID)).count == ledger.entries.count else {
+        let identifiers = ledger.entries.map(\.record.receipt.recordID)
+            + (ledger.rewrites ?? []).map(\.record.receipt.recordID)
+        guard ledger.version == 1, identifiers.count <= 4096,
+              Set(identifiers).count == identifiers.count else {
             throw TrackingFailure(.failed, "Repair the tracking ledger in BuildrAI; records were not overwritten.")
         }
         for entry in ledger.entries {
@@ -157,12 +197,24 @@ struct TrackingCommandExecution {
                 throw TrackingFailure(.failed, "Repair invalid retained tracking records in BuildrAI.")
             }
         }
+        for entry in ledger.rewrites ?? [] {
+            do {
+                guard entry.record.version == 1, entry.record.scope == scope,
+                      entry.record.recordedAt.isFinite, entry.record.recordedAt >= 0,
+                      try BridgeValidator.validate(entry.record.execution, scope: scope) == entry.record.receipt else {
+                    throw BridgeValidationError.invalidPayload
+                }
+            } catch {
+                throw TrackingFailure(.failed,
+                                      "Repair invalid retained rewrite records in BuildrAI; state was not changed.")
+            }
+        }
         return ledger
     }
 
     private func save(_ ledger: TrackingLedger, to url: URL) throws {
         let data = try JSONEncoder().encode(ledger)
-        guard ledger.entries.count <= 4096, data.count <= 4 * 1024 * 1024 else {
+        guard ledger.entries.count + (ledger.rewrites?.count ?? 0) <= 4096, data.count <= 4 * 1024 * 1024 else {
             throw TrackingFailure(.failed, "Tracking storage is full. Retain the ledger and upgrade storage capacity.")
         }
         do {
@@ -179,8 +231,14 @@ private struct TrackingLedger: Codable {
         var acknowledged: Bool
     }
 
+    struct RewriteEntry: Codable {
+        let record: TrackingRewriteRecord
+        var acknowledged: Bool
+    }
+
     let version: Int
     var entries: [Entry]
+    var rewrites: [RewriteEntry]?
 }
 
 private struct TrackingFailure: Error {

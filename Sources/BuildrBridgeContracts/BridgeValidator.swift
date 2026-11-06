@@ -125,7 +125,12 @@ public enum BridgeValidator {
         for mapping in record.mappings {
             try requireSHA(mapping.original)
             try requireSHA(mapping.replacement)
-            guard mapping.original != mapping.replacement else { throw BridgeValidationError.invalidPayload }
+            guard mapping.original != mapping.replacement,
+                  mapping.original.count == mapping.replacement.count,
+                  mapping.original.contains(where: { $0 != "0" }),
+                  mapping.replacement.contains(where: { $0 != "0" }) else {
+                throw BridgeValidationError.invalidPayload
+            }
         }
     }
 

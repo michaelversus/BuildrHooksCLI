@@ -5,7 +5,8 @@ struct TrackingCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "tracking",
         abstract: "Record and replay durable source-aware commit associations without opening BuildrAI.",
-        subcommands: [TrackingRecordCommitCommand.self, TrackingReplayCommand.self, TrackingAcknowledgeCommand.self]
+        subcommands: [TrackingRecordCommitCommand.self, TrackingRecordRewriteCommand.self,
+                      TrackingReplayCommand.self, TrackingAcknowledgeCommand.self]
     )
 }
 
@@ -46,6 +47,22 @@ struct TrackingAcknowledgeCommand: ParsableCommand {
     func run() throws {
         do {
             try makeExecution().run(scopePath: scope, executionPath: nil, acknowledgementPath: acknowledgement)
+        } catch is TrackingCommandFailure { throw ExitCode(33) }
+    }
+}
+
+struct TrackingRecordRewriteCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "record-rewrite", abstract: "Record explicit amend/rebase/other transformation mappings offline."
+    )
+    @Option(name: .long) var scope: String
+    @Option(name: .long, help: "JSON explicit mappings with a stable invocation identity.")
+    var execution: String
+    enum CodingKeys: String, CodingKey { case scope, execution }
+    var makeExecution: () -> TrackingCommandExecution = { TrackingCommandExecution() }
+    func run() throws {
+        do {
+            try makeExecution().run(scopePath: scope, executionPath: nil, rewritePath: execution)
         } catch is TrackingCommandFailure { throw ExitCode(33) }
     }
 }

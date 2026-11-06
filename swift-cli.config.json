@@ -53,6 +53,27 @@
           ],
           "stdoutContains": "discover",
           "timeout": 10
+        },
+        {
+          "arguments": [
+            "tracking",
+            "record-rewrite",
+            "--help"
+          ],
+          "stdoutContains": "--execution",
+          "timeout": 10
+        },
+        {
+          "arguments": [
+            "capabilities",
+            "--json",
+            "--protocol-version",
+            "1",
+            "--operation",
+            "recordRewrite"
+          ],
+          "stdoutContains": "ready",
+          "timeout": 10
         }
       ]
     }
