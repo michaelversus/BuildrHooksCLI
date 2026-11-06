@@ -1,0 +1,56 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "cancel-success",
+  "packet": null,
+  "request": {
+    "body": {
+      "cancel": {
+        "_0": {
+          "targetRequestID": "older-request"
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "cancelled": {
+        "_0": {
+          "targetRequestID": "older-request"
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}
