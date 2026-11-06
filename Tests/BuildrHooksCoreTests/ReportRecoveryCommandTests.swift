@@ -74,7 +74,7 @@ struct ReportRecoveryCommandTests {
     @Test func cancellationCapabilityIsReadyForTheCompleteReportingCommandSet() {
         let capabilities = BuildrHooksCapabilities.current.reportingTracking
         #expect(capabilities.implementedOperations == [
-            .discover, .resolve, .prepare, .finalize, .cancel, .recordCommit, .acknowledge
+            .discover, .resolve, .prepare, .finalize, .cancel, .recordCommit, .recordRewrite, .acknowledge
         ])
         #expect(capabilities.negotiate(version: 1, operation: "cancel").status == .ready)
     }

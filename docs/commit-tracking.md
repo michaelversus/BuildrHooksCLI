@@ -1,4 +1,4 @@
-# Offline commit recording (protocol v1)
+# Offline commit and rewrite recording (protocol v1)
 
 The CLI records successful agent commit completion without starting or locating
 BuildrAI. BuildrAI owns opt-in installation, project authorization and ingestion.
@@ -7,6 +7,7 @@ or execute Git.
 
 ```sh
 buildrhooks tracking record-commit --scope authorized-scope.json --execution completion.json
+buildrhooks tracking record-rewrite --scope authorized-scope.json --execution rewrite.json
 buildrhooks tracking replay --scope authorized-scope.json
 buildrhooks tracking acknowledge --scope authorized-scope.json --acknowledgement ack.json
 ```
@@ -110,7 +111,8 @@ compact/archive markers; preserve the ledger when planning a storage upgrade.
 
 ## Status and Git success
 
-Every result is JSON with `version`, `status`, `action` and `records`.
+Every result is JSON with `version`, `status`, `action`, `records` (commits)
+and `rewrites` (explicit transformations). Older v1 results may omit `rewrites`.
 Failures exit 33: disabled, missingSetup, incompatibleVersion, invalidInput, busy
 or failed. Diagnostic actions do not echo raw input or filesystem exceptions.
 A failed write never returns a successful capture receipt. Retry with the same
@@ -142,3 +144,80 @@ symlink rejection. These adapters do not establish installed BuildrAI ingestion,
 real Codex/Claude completion capture, Git hook installation or GitHub acceptance.
 Those require a compatible real app/CLI/library pair. No release or merge is
 performed by this implementation.
+
+## Explicit rewrite input and coverage
+
+The app-owned opt-in post-rewrite wrapper converts Git's supplied old/new lines
+into one owned JSON file and invokes `tracking record-rewrite --scope … --execution …`.
+The CLI accepts `TrackingRewriteExecution`, not a shell command, patch, commit
+message, inferred similarity, or an observed HEAD:
+
+```json
+{
+  "invocationID": "stable-id-for-this-hook-invocation",
+  "repository": {"host": "github.com", "owner": "owner", "name": "repo"},
+  "rootPath": "/canonical/authorized/project",
+  "kind": "rebase",
+  "mappings": [
+    {"original": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "replacement": "cccccccccccccccccccccccccccccccccccccccc"},
+    {"original": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "replacement": "cccccccccccccccccccccccccccccccccccccccc"}
+  ]
+}
+```
+
+Use `amend` or `rebase` for the corresponding supported Git post-rewrite
+invocation, including rebase squash/fixup. `explicit` accepts mappings supplied
+by another supported transformation producer. No operation is inferred. Each
+original must occur once in a nonempty batch. Full lower-case SHA-1 or SHA-256
+IDs are required; a pair must use the same format and different, nonzero IDs.
+Malformed, truncated, empty, deletion/null-ID, repeated-original or unknown-kind
+batches fail as a whole with exit 33 and actionable JSON. No successful subset is
+silently captured. A producer must retain its original input and stable invocation
+identity to retry after failure. Valid omitted mappings cannot be detected:
+success means only that the supplied pairs were retained, never complete coverage
+of the repository's rewrite history.
+
+The stable receipt ID is `rewrite-` plus SHA-256 of the JSON array
+`[host, owner, repository, projectID, rootPath, invocationID]`. Retry with the
+same invocation identity and identical evidence; conflicting reuse is rejected.
+The producer must persist this identity across retries, and assign a new one for
+a subsequent transformation. Neither the mappings nor a rewriting session
+replace the original commit/session associations.
+
+Results include `rewrites`, each a `TrackingRewriteRecord` containing
+`version`, exact `scope`, `receipt` (`BridgeRewriteRecord`), original
+`execution`, and `recordedAt`. The ledger adds an optional `rewrites`
+entry array alongside existing commit `entries`; old commit-only ledgers remain
+readable. Both arrays share the same atomic write, lock, 4096-entry/4-MiB budget,
+replay and acknowledgement command. The app must gate installation/ingestion on
+the executable `recordRewrite` capability; old binaries cannot safely ingest or
+mutate a ledger after rewrite support has been enabled.
+
+Replay retains many-to-one pairs and later chains as distinct immutable records.
+For example, `a → c, b → c`, followed by `c → d`, preserves both original
+contributions to `d`. BuildrAI owns graph traversal and idempotent attribution
+ingestion. It must ingest original commit receipts and rewrite pairs without
+assigning all contributions to the session that performed the rewrite. Replay
+ordering between the commit and rewrite arrays is not an attribution rule.
+Acknowledge exact receipt IDs from either array only after durable app ingestion.
+Duplicates, interrupted acknowledgement and report cleanup follow the same
+retention policy as commits.
+
+A minimal app-owned best-effort invocation is:
+
+```sh
+if ! "$cli" tracking record-rewrite --scope "$scope" --execution "$rewrite"; then
+  printf '%s\n' 'BuildrAI rewrite recording failed; retain input and retry.' >&2
+fi
+exit 0
+```
+
+The app owns conversion of Git stdin, stable identity persistence, input retention,
+hook installation/chaining, removal and a process deadline. It must preserve
+existing hook behavior and Git success even if the executable is unavailable.
+This CLI neither installs hooks nor invokes Git. Tests use injected command
+effects and shell command stubs; actual Codex/Claude, installed hooks, BuildrAI
+ingestion, external Git tools/machines and every rewrite operation remain separate
+acceptance. Supported post-rewrite coverage does not imply universal capture.
