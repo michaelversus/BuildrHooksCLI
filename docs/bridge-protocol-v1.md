@@ -150,24 +150,28 @@ selection and final-output budgets. Do not log packets or prompts.
 Normal `buildrhooks capabilities --json` preserves existing capabilities and adds
 `reportingTracking` with protocolVersions [1], contractRevision 1.0.0,
 definedOperations and implementedOperations. The executable advertises
-**discover, resolve, prepare, finalize and cancel** as implemented operations. The independently consumed
-contracts library describes schemas without asserting executable availability.
-See [report commands and local exchange](report-discovery.md). Other operations
-remain unsupported until implemented.
+**discover, resolve, prepare, finalize, cancel, recordCommit, recordRewrite and
+acknowledge** as implemented operations. The independently consumed contracts
+library describes schemas without asserting executable or app availability.
+See [report commands and local exchange](report-discovery.md) and
+[offline recording](commit-tracking.md).
 
 ```sh
 buildrhooks capabilities --json --protocol-version 1 --operation recordCommit
-# {"action":"Install a CLI/app pair implementing this operation. Schema support alone is insufficient.","status":"unsupported"}
-# exit 31
+# JSON status "ready" with guidance
+# exit 0 (CLI capability only; not app/project authorization)
 
 buildrhooks capabilities --json --protocol-version 2 --operation discover
 # actionable status "incompatible", exit 30
+
+buildrhooks capabilities --json --protocol-version 1 --operation futureOperation
+# actionable status "unsupported", exit 31
 ```
 
 Use both negotiation flags together; incomplete options fail command validation.
 Unknown operations return unsupported. Ready (exit 0) requires both version
 compatibility and an actually implemented operation; runtime setup/app access
-must still be checked by future command implementations. Historical capabilities
+is checked separately by the report and tracking commands. Historical capabilities
 without reportingTracking decode as having no supported protocol or operations.
 
 ## Acceptance boundaries
@@ -189,3 +193,6 @@ request ID, scope and creation/deadline pair. See the
 Offline commit recording adds shared v1 `TrackingConfiguration`, `TrackingCommitExecution`,
 `TrackingRecord` and `TrackingResult` wire types, with completion validation shared by both
 consumers. See [tracking exchange and app obligations](commit-tracking.md).
+
+See [distribution verification and compatible-release gate](bridge-distribution.md)
+for independent package checks, staging, install/upgrade guidance and manual gates.

@@ -90,7 +90,8 @@
     "paths": [
       "Package.swift",
       "Sources",
-      "Tests"
+      "Tests",
+      "Verification"
     ]
   },
   "timeout": 600
