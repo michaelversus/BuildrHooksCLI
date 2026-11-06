@@ -32,7 +32,10 @@ struct ReportCommandExecution {
                                         createdAt: started, deadline: started + timeout, body: body())
         let response: BridgeResponse
         do {
-            try BridgeValidator.validate(request, expectedScope: scope)
+            // Finalization validation requires the retained packet, loaded under the transport lock.
+            if request.body.operation != .finalize {
+                try BridgeValidator.validate(request, expectedScope: scope)
+            }
             response = try exchange(request, timeout: timeout)
         } catch let error as ReportExchangeError {
             response = .init(version: 1, requestID: request.requestID, scope: scope, body: .error(error.failure))
@@ -65,6 +68,15 @@ struct ReportCommandExecution {
         }
     }
 
+    private func updateWorkflow(_ response: BridgeResponse, handoff: any ReportHandoff) throws {
+        switch response.body {
+        case let .prepared(packet): try handoff.retain(packet)
+        case .finalized: handoff.finishWorkflow()
+        case let .error(failure) where [.cancelled, .timeout].contains(failure.code): handoff.finishWorkflow()
+        default: break
+        }
+    }
+
     private func exchange(_ request: BridgeRequest, timeout: Double) throws -> BridgeResponse {
         let handoff = try files.begin(request)
         defer { handoff.close() }
@@ -85,14 +97,13 @@ struct ReportCommandExecution {
                     }
                     previous = progress
                 } else {
-                    if case let .prepared(packet) = response.body {
-                        try handoff.retain(packet)
-                    }
+                    try updateWorkflow(response, handoff: handoff)
                     return response
                 }
             }
             try wait(min(0.05, max(0, request.deadline - now())))
         }
+        handoff.finishWorkflow()
         throw ReportExchangeError(.timeout, "BuildrAI did not complete before the deadline. "
             + "Verify app setup and project access, then retry.")
     }

@@ -30,7 +30,7 @@ struct BridgeCapabilityTests {
         #expect(result.status == .incompatible)
         #expect(!result.action.isEmpty)
         var unsupported = try CapabilitiesCommand.parse([
-            "--json", "--protocol-version", "1", "--operation", "finalize"
+            "--json", "--protocol-version", "1", "--operation", "recordCommit"
         ])
         unsupported.output = { output.append($0) }
         #expect(throws: ExitCode(31)) { try unsupported.run() }
@@ -47,6 +47,21 @@ struct BridgeCapabilityTests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let bridge = try #require(json["reportingTracking"] as? [String: Any])
         #expect(bridge["protocolVersions"] as? [Int] == [1])
-        #expect(bridge["implementedOperations"] as? [String] == ["discover", "resolve", "prepare"])
+        #expect(bridge["implementedOperations"] as? [String] == ["discover", "resolve", "prepare", "finalize"])
+    }
+}
+
+struct FinalizeCapabilityTests {
+    @Test func finalizeIsAdvertisedAndNegotiatesAsReady() throws {
+        #expect(BuildrHooksCapabilities.current.reportingTracking.implementedOperations.contains(.finalize))
+        let output = CoordinationCapture()
+        var command = try CapabilitiesCommand.parse([
+            "--json", "--protocol-version", "1", "--operation", "finalize"
+        ])
+        command.output = { output.append($0) }
+        try command.run()
+        let readiness = try JSONDecoder().decode(BridgeReadiness.self,
+                                                 from: Data(#require(output.output.last).utf8))
+        #expect(readiness.status == .ready)
     }
 }

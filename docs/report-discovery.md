@@ -1,8 +1,9 @@
-# Reporting discovery, resolution and preparation
+# Reporting discovery, preparation and finalization
 
 These commands are part of the normal `buildrhooks` executable:
 
 ```sh
+buildrhooks report finalize --scope authorized-scope.json --generated generated-content.json --timeout 100
 buildrhooks report prepare --scope authorized-scope.json --preparation confirmed-selection.json --timeout 100
 buildrhooks report discover --scope authorized-scope.json --target current-pr.json --timeout 30
 buildrhooks report resolve --scope authorized-scope.json --query 'older feature work'
@@ -81,8 +82,8 @@ unsafe existing handoffs. The lock inode remains after release to prevent two
 owners from locking different inodes. A failed ownership attempt never removes
 another request's files. Terminal success/failure/timeout removes only the
 current request directory, except successful preparation as described below.
-Recovery of abandoned requests and finalization/cancellation commands belong to
-later lifecycle work.
+Recovery of abandoned requests and explicit cancellation commands belong to
+later lifecycle work. Finalization cleanup is described below.
 
 ## Preparing confirmed sessions
 
@@ -114,13 +115,48 @@ overwrite an existing workflow. The collection lock is released, allowing a new
 request with a fresh ID. Errors and timeouts remove only their own request
 directory; they never remove another prepared workflow.
 
-Generated content must use that exact snapshot and evidence IDs. Finalization,
-terminal workflow cleanup and abandoned-workflow recovery are follow-on lifecycle
-commands; callers should retain the returned workflow identity until then.
-Preparation does not claim that those commands are available.
+## Finalizing generated content
 
-Capabilities advertise `discover`, `resolve` and `prepare` as implemented CLI
-operations. The independent contracts library continues to describe schemas
+`report finalize --generated` accepts a v1 `BridgeGeneratedContent` JSON file
+containing `snapshot`, `summaries` and `groups`. Each summary identifies
+its source-aware `session`, `text` and supporting `evidenceIDs`. Each
+group also carries `kind` and `outcome` matching its referenced records.
+Use the exact snapshot returned by prepare, including workflow request ID,
+target/head/full commit set, selection order, disclosure and evidence revision.
+Every selected session needs a summary; unavailable sessions can have empty
+supporting IDs as permitted by the shared contract.
+
+Finalization acquires the repository lock, loads the retained preparation and
+packet from that workflow's owned directory, validates scope/snapshot/references/
+outcomes, and publishes a **fresh request ID** with a `finalize` body.
+The snapshot's original `requestID` continues to identify the preparation;
+the outer envelope ID identifies this finalization attempt. The app must validate
+against its own captured evidence and current access, head and disclosure state.
+The CLI does not generate text or supply replacement metrics. Unknown JSON
+fields, including metrics added to generated input, are rejected before app
+launch; malformed input may have no JSON result.
+
+A successful terminal response contains `body.finalized._0.markdown` and
+`snapshot`. Decoding that Markdown string preserves the exact app artifact,
+including Unicode, line endings and trailing whitespace. The CLI emits the v1
+JSON envelope and performs no Markdown rendering or rewriting. The caller can
+preview and publish that same string after its own approval flow. Progress goes
+only to stderr as stage names. App error codes and actionable text, including
+stale snapshot, content rejection or size/narrow-selection instructions, pass
+through unchanged with exit 32.
+
+The preparation remains available during finalization and after recoverable
+input, launch or app rejection, so a corrected submission can retry with a fresh
+transport request. Validated final success, a validated app timeout/cancellation,
+or this attempt's bounded timeout removes only the identified prepared workflow
+and its finalization handoff. Mismatched/intermediate preparation responses never
+complete finalization or delete its packet. Other workflows and durable tracking
+records remain untouched. A workflow cannot be finalized again after terminal
+cleanup. Explicit cancellation and abandoned-workflow recovery remain separate
+lifecycle work.
+
+Capabilities advertise `discover`, `resolve`, `prepare` and `finalize` as
+implemented CLI operations. The independent contracts library describes schemas
 without claiming executable capabilities. Capability readiness does not prove a
 compatible app adapter is installed.
 
