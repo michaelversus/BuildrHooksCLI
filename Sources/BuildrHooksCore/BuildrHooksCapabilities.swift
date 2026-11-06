@@ -19,7 +19,12 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let claudeModUsageCapture: Bool
 
     public static let current = BuildrHooksCapabilities(
-        reportingTracking: .current,
+        reportingTracking: BridgeCapabilities(
+            protocolVersions: BridgeCapabilities.current.protocolVersions,
+            contractRevision: BridgeCapabilities.current.contractRevision,
+            definedOperations: BridgeCapabilities.current.definedOperations,
+            implementedOperations: [.discover, .resolve]
+        ),
         version: 1,
         agents: [.codex, .claude],
         lifecycleEvents: [.sessionStart, .promptSubmit, .stop],

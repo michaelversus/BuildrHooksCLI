@@ -45,6 +45,14 @@
           ],
           "stdoutContains": "Prepared.",
           "timeout": 10
+        },
+        {
+          "arguments": [
+            "report",
+            "--help"
+          ],
+          "stdoutContains": "discover",
+          "timeout": 10
         }
       ]
     }
