@@ -1,0 +1,101 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "resolve-ambiguous",
+  "packet": null,
+  "request": {
+    "body": {
+      "resolve": {
+        "_0": {
+          "query": "session-1",
+          "source": null
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "resolved": {
+        "_0": {
+          "choices": [
+            {
+              "children": [],
+              "coverage": {
+                "notes": [
+                  "Skill inference pending; missing input token observations."
+                ],
+                "state": "partial"
+              },
+              "header": "Investigate report contracts",
+              "parent": null,
+              "provenance": [
+                {
+                  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "recordedCommit"
+                }
+              ],
+              "session": {
+                "sessionID": "session-1",
+                "source": "codex"
+              }
+            },
+            {
+              "children": [],
+              "coverage": {
+                "notes": [
+                  "Skill inference pending; missing input token observations."
+                ],
+                "state": "partial"
+              },
+              "header": "Investigate report contracts",
+              "parent": null,
+              "provenance": [
+                {
+                  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "recordedCommit"
+                }
+              ],
+              "session": {
+                "sessionID": "session-1",
+                "source": "claude"
+              }
+            }
+          ],
+          "query": "session-1"
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

@@ -117,6 +117,9 @@ Or install it under `buildrhooks` using the provided `Makefile`:
 make install
 ```
 
+For report/tracking setup, upgrade and the compatible-release gate, see
+[bridge distribution verification](docs/bridge-distribution.md).
+
 ## 🧪 Development
 
 Development wrappers use the shared MySkills Swift CLI runtime. See
@@ -191,6 +194,16 @@ Use `buildrhooks capabilities --json` for a versioned, machine-readable list
 of supported agents, lifecycle events, and Claude Desktop transcript-surface
 support. BuildrAI should block Claude setup when this document does not declare
 the required capability.
+
+### Session reporting
+
+Use `buildrhooks report discover --scope authorized-scope.json --target current-pr.json`
+for PR candidates and `buildrhooks report resolve --scope authorized-scope.json --query SESSION`
+for references, raw IDs or broader authorized search. These commands contact or
+open BuildrAI and return v1 JSON; progress goes to stderr.
+Cancel an identified workflow with `buildrhooks report cancel --scope authorized-scope.json --request REQUEST_ID`.
+See [reporting workflow lifecycle](docs/report-discovery.md) for authorization,
+input shapes, the app-side transport adapter and pending real-pair acceptance.
 
 ## 📦 Supported Payloads
 

@@ -14,5 +14,7 @@ class Buildrhookscli < Formula
 
   test do
     system "#{bin}/buildrhooks", "--version"
+    system "#{bin}/buildrhooks", "capabilities", "--json", "--protocol-version", "1", "--operation", "discover"
+    system "#{bin}/buildrhooks", "capabilities", "--json", "--protocol-version", "1", "--operation", "recordRewrite"
   end
 end

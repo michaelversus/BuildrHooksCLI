@@ -1,6 +1,8 @@
+import BuildrBridgeContracts
 import Foundation
 
 public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
+    public let reportingTracking: BridgeCapabilities
     public let version: Int
     public let agents: [HookAgentKind]
     public let lifecycleEvents: [HookEventKind]
@@ -17,6 +19,13 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
     public let claudeModUsageCapture: Bool
 
     public static let current = BuildrHooksCapabilities(
+        reportingTracking: BridgeCapabilities(
+            protocolVersions: BridgeCapabilities.current.protocolVersions,
+            contractRevision: BridgeCapabilities.current.contractRevision,
+            definedOperations: BridgeCapabilities.current.definedOperations,
+            implementedOperations: [.discover, .resolve, .prepare, .finalize, .cancel,
+                                    .recordCommit, .recordRewrite, .acknowledge]
+        ),
         version: 1,
         agents: [.codex, .claude],
         lifecycleEvents: [.sessionStart, .promptSubmit, .stop],
@@ -36,6 +45,9 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
 public extension BuildrHooksCapabilities {
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        reportingTracking = try values.decodeIfPresent(BridgeCapabilities.self, forKey: .reportingTracking)
+            ?? BridgeCapabilities(protocolVersions: [], contractRevision: "unavailable",
+                                  definedOperations: [], implementedOperations: [])
         version = try values.decode(Int.self, forKey: .version)
         agents = try values.decode([HookAgentKind].self, forKey: .agents)
         lifecycleEvents = try values.decode([HookEventKind].self, forKey: .lifecycleEvents)

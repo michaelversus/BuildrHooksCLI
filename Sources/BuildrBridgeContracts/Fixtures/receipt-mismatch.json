@@ -1,0 +1,68 @@
+{
+  "expectedError": "responseMismatch",
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "receipt-mismatch",
+  "packet": null,
+  "request": {
+    "body": {
+      "recordCommit": {
+        "_0": {
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "recordID": "record-1",
+          "repository": {
+            "host": "github.com",
+            "name": "project",
+            "owner": "example"
+          },
+          "session": {
+            "sessionID": "session-1",
+            "source": "codex"
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "recorded": {
+        "_0": {
+          "recordIDs": [
+            "other-record"
+          ]
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

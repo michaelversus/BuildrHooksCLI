@@ -1,0 +1,325 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "prepare-multi-session",
+  "packet": null,
+  "request": {
+    "body": {
+      "prepare": {
+        "_0": {
+          "disclosure": {
+            "includeOriginalPrompts": false,
+            "policyRevision": "sharing-v1"
+          },
+          "selection": [
+            {
+              "sessionID": "session-1",
+              "source": "codex"
+            },
+            {
+              "source": "claude",
+              "sessionID": "session-1"
+            }
+          ],
+          "target": {
+            "baseRepository": {
+              "host": "github.com",
+              "name": "project",
+              "owner": "upstream"
+            },
+            "commits": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ],
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "number": 47,
+            "sourceRepository": {
+              "host": "github.com",
+              "name": "project",
+              "owner": "example"
+            }
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "prepared": {
+        "_0": {
+          "coverage": {
+            "notes": [
+              "Running session; omitted/truncated records; one unavailable session."
+            ],
+            "state": "partial"
+          },
+          "rollupMetrics": {
+            "cacheReadTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "cacheWriteTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "inputTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "outputTokens": {
+              "available": {
+                "_0": 0
+              }
+            },
+            "workingSeconds": {
+              "available": {
+                "_0": 99
+              }
+            }
+          },
+          "sessions": [
+            {
+              "candidate": {
+                "children": [],
+                "coverage": {
+                  "notes": [
+                    "Session still running; older activity omitted; request text truncated."
+                  ],
+                  "state": "partial"
+                },
+                "header": "Investigate report contracts",
+                "parent": null,
+                "provenance": [
+                  {
+                    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "kind": "recordedCommit"
+                  }
+                ],
+                "session": {
+                  "sessionID": "session-1",
+                  "source": "codex"
+                }
+              },
+              "coverage": {
+                "notes": [
+                  "Session still running; older activity omitted; request text truncated."
+                ],
+                "state": "partial"
+              },
+              "metrics": {
+                "cacheReadTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "cacheWriteTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "inputTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "outputTokens": {
+                  "available": {
+                    "_0": 0
+                  }
+                },
+                "workingSeconds": {
+                  "available": {
+                    "_0": 12
+                  }
+                }
+              },
+              "modelSettings": [
+                {
+                  "model": "model-a",
+                  "occurredAt": 130,
+                  "reasoningEffort": null
+                },
+                {
+                  "model": "model-b",
+                  "reasoningEffort": "high",
+                  "occurredAt": 145
+                }
+              ],
+              "records": [
+                {
+                  "evidenceID": "request-1",
+                  "kind": "request",
+                  "text": "Validate report contracts (sanitized, truncated)",
+                  "outcome": "unknown",
+                  "occurredAt": 120
+                },
+                {
+                  "evidenceID": "evidence-1",
+                  "kind": "validation",
+                  "occurredAt": 140,
+                  "outcome": "success",
+                  "text": "Contract tests passed"
+                }
+              ],
+              "skills": [
+                {
+                  "name": "ticket-tdd",
+                  "provenance": "explicit"
+                },
+                {
+                  "name": "review",
+                  "provenance": "inferred"
+                },
+                {
+                  "name": "analysis",
+                  "provenance": "pending"
+                }
+              ]
+            },
+            {
+              "candidate": {
+                "children": [],
+                "coverage": {
+                  "state": "unavailable",
+                  "notes": [
+                    "Source access unavailable."
+                  ]
+                },
+                "header": "Unavailable older session",
+                "parent": null,
+                "provenance": [
+                  {
+                    "kind": "manual",
+                    "commit": null
+                  }
+                ],
+                "session": {
+                  "source": "claude",
+                  "sessionID": "session-1"
+                }
+              },
+              "coverage": {
+                "state": "unavailable",
+                "notes": [
+                  "Source access unavailable."
+                ]
+              },
+              "metrics": {
+                "cacheReadTokens": {
+                  "unavailable": {
+                    "_0": "source unavailable"
+                  }
+                },
+                "cacheWriteTokens": {
+                  "unavailable": {
+                    "_0": "source unavailable"
+                  }
+                },
+                "inputTokens": {
+                  "unavailable": {
+                    "_0": "source unavailable"
+                  }
+                },
+                "outputTokens": {
+                  "unavailable": {
+                    "_0": "source unavailable"
+                  }
+                },
+                "workingSeconds": {
+                  "unavailable": {
+                    "_0": "source unavailable"
+                  }
+                }
+              },
+              "modelSettings": [],
+              "records": [],
+              "skills": []
+            }
+          ],
+          "snapshot": {
+            "capturedAt": 150,
+            "disclosure": {
+              "includeOriginalPrompts": false,
+              "policyRevision": "sharing-v1"
+            },
+            "evidenceRevision": "revision-1",
+            "requestID": "request-1",
+            "scope": {
+              "projectID": "project-1",
+              "repository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "example"
+              },
+              "rootPath": "/workspace/project"
+            },
+            "selection": [
+              {
+                "sessionID": "session-1",
+                "source": "codex"
+              },
+              {
+                "source": "claude",
+                "sessionID": "session-1"
+              }
+            ],
+            "snapshotID": "snapshot-1",
+            "target": {
+              "baseRepository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "upstream"
+              },
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "number": 47,
+              "sourceRepository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "example"
+              }
+            }
+          }
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "packagePath": ".",
+  "build": {"configuration": "debug", "scratchPath": ".build", "arguments": ["--disable-sandbox"]},
+  "tests": {"parallel": false, "coverage": true},
+  "timeout": 600
+}

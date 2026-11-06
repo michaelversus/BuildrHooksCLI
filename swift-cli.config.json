@@ -17,7 +17,8 @@
     "BuildrHooksCLI": {
       "executable": "buildrhooks",
       "resources": [
-        "BuildrHooksCLI_BuildrHooksCLI.bundle"
+        "BuildrHooksCLI_BuildrHooksCLI.bundle",
+        "BuildrHooksCLI_BuildrBridgeContracts.bundle"
       ],
       "smoke": [
         {
@@ -44,6 +45,35 @@
           ],
           "stdoutContains": "Prepared.",
           "timeout": 10
+        },
+        {
+          "arguments": [
+            "report",
+            "--help"
+          ],
+          "stdoutContains": "discover",
+          "timeout": 10
+        },
+        {
+          "arguments": [
+            "tracking",
+            "record-rewrite",
+            "--help"
+          ],
+          "stdoutContains": "--execution",
+          "timeout": 10
+        },
+        {
+          "arguments": [
+            "capabilities",
+            "--json",
+            "--protocol-version",
+            "1",
+            "--operation",
+            "recordRewrite"
+          ],
+          "stdoutContains": "ready",
+          "timeout": 10
         }
       ]
     }
@@ -60,7 +90,8 @@
     "paths": [
       "Package.swift",
       "Sources",
-      "Tests"
+      "Tests",
+      "Verification"
     ]
   },
   "timeout": 600

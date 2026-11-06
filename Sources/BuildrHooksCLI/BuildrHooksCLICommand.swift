@@ -1,4 +1,5 @@
 import ArgumentParser
+import BuildrBridgeContracts
 import BuildrHooksCore
 import Foundation
 
@@ -8,7 +9,10 @@ struct BuildrHooksCLICommand: ParsableCommand {
         commandName: "buildrhooks",
         abstract: "Relay hook events into BuildrAI's raw hook queue.",
         version: version,
-        subcommands: [CodexCommand.self, ClaudeCommand.self, CapabilitiesCommand.self, UsageCommand.self]
+        subcommands: [
+            CodexCommand.self, ClaudeCommand.self, CapabilitiesCommand.self, UsageCommand.self,
+            ReportCommand.self, TrackingCommand.self
+        ]
     )
 }
 
@@ -153,15 +157,47 @@ struct CapabilitiesCommand: ParsableCommand {
     @Flag(name: .long, help: "Emit machine-readable JSON.")
     var json = false
 
+    @Option(name: .long, help: "Reporting/tracking protocol version to negotiate; requires --operation.")
+    var protocolVersion: Int?
+
+    @Option(name: .long, help: "Reporting/tracking operation to require; requires --protocol-version.")
+    var operation: String?
+
+    enum CodingKeys: String, CodingKey { case json, protocolVersion, operation }
+
+    var output: @Sendable (String) -> Void = { print($0) }
+
+    func validate() throws {
+        guard (protocolVersion == nil) == (operation == nil) else {
+            throw ValidationError("Use --protocol-version and --operation together for compatibility/readiness checks.")
+        }
+    }
+
     func run() throws {
+        if let protocolVersion, let operation {
+            let result = BuildrHooksCapabilities.current.reportingTracking.negotiate(
+                version: protocolVersion, operation: operation
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            if json {
+                try output(String(bytes: encoder.encode(result), encoding: .utf8) ?? "{}")
+            } else {
+                output("\(result.status.rawValue): \(result.action)")
+            }
+            switch result.status {
+            case .incompatible: throw ExitCode(30)
+            case .unsupported: throw ExitCode(31)
+            case .ready: return
+            }
+        }
         let capabilities = BuildrHooksCapabilities.current
         if json {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            try FileHandle.standardOutput.write(encoder.encode(capabilities))
-            print()
+            try output(String(bytes: encoder.encode(capabilities), encoding: .utf8) ?? "{}")
         } else {
-            print(
+            output(
                 "BuildrHooksCLI \(capabilities.version): \(capabilities.agents.map(\.rawValue).joined(separator: ", "))"
             )
         }
