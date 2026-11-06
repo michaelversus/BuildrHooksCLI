@@ -117,6 +117,9 @@ Or install it under `buildrhooks` using the provided `Makefile`:
 make install
 ```
 
+For report/tracking setup, upgrade and the compatible-release gate, see
+[bridge distribution verification](docs/bridge-distribution.md).
+
 ## 🧪 Development
 
 Development wrappers use the shared MySkills Swift CLI runtime. See
