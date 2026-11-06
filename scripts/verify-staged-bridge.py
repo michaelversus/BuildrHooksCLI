@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-import time
+from staged_report_checks import verify_report
 
 
 def verify(binary, source):
@@ -15,6 +15,8 @@ def verify(binary, source):
         result = subprocess.run([str(binary), *args], capture_output=True, text=True, timeout=10)
         if result.returncode != expected:
             raise RuntimeError(f"{name}: exit {result.returncode}, expected {expected}: {result.stderr}")
+        assert "SENSITIVE_SENTINEL" not in result.stdout + result.stderr
+        assert "DecodingError" not in result.stderr
         value = json.loads(result.stdout) if json_output else result.stdout
         checks.append({"name": name, "exitStatus": result.returncode})
         return value
@@ -82,25 +84,7 @@ def verify(binary, source):
         failed = run("failed-commit", ["tracking", "record-commit", *tracking,
                                      "--execution", write("failed.json", execution)], 33)
         assert failed["status"] == "invalidInput"
-        # A contract-compatible retained workflow exercises cancellation without app launch.
-        shared = json.loads((fixtures / "prepare-partial.json").read_text())
-        request = shared["request"]
-        request.update(scope=scope, requestID="smoke-workflow", createdAt=time.time(), deadline=time.time() + 30)
-        directory = root / ".buildrai/reporting/v1/requests/smoke-workflow"
-        directory.mkdir(parents=True)
-        (directory / "request.json").write_text(json.dumps(request))
-        packet = shared["response"]["body"]["prepared"]["_0"]
-        packet["snapshot"].update(scope=scope, requestID=request["requestID"], capturedAt=request["createdAt"])
-        (directory / "packet.json").write_text(json.dumps(packet))
-        cancelled = run("report-cancel", ["report", "cancel", "--scope", scope_path, "--request", "smoke-workflow"])
-        assert cancelled["body"]["cancelled"]["_0"]["targetRequestID"] == "smoke-workflow"
-        assert not directory.exists()
-        terminal = json.loads((directory.parent.parent / "ended/smoke-workflow.json").read_text())
-        assert terminal["code"] == "cancelled"
-        # Reuse of the ended workflow is a structured error and never opens the app.
-        error = run("report-ended-workflow", ["report", "cancel", "--scope", scope_path,
-                                              "--request", "smoke-workflow"], 32)
-        assert error["body"]["error"]["_0"]["code"] == "invalidInput"
+        verify_report(run, root, scope, scope_path, fixtures, write)
         assert len(run("tracking-survives-report-cleanup", ["tracking", "replay", *tracking])["records"]) == 1
         ids = [queued["records"][0]["receipt"]["recordID"], rewritten["rewrites"][0]["receipt"]["recordID"]]
         ack = write("ack.json", {"recordIDs": ids})
@@ -110,7 +94,7 @@ def verify(binary, source):
     return {"binary": str(binary), "version": version, "contractRevision": "1.0.0",
             "checks": checks, "passed": len(checks),
             "limitations": ["No real app/agent/GitHub, install/update or release acceptance.",
-                             "Positive report collection/prepare/finalize and missing-app effects use injected Swift command tests."]}
+                             "Report responder fixtures and explicit launch controls do not establish real app launch or source collection."]}
 
 
 if __name__ == "__main__":

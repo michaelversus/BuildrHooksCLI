@@ -42,8 +42,13 @@ cannot prove remote completeness.
 
 Stdout contains one terminal `BridgeResponse` JSON envelope. Successful empty
 discovery is distinct from silence. Operational errors return an actionable v1
-error and exit 32. Argument or malformed input errors use the normal parser/error
-diagnostic path and may have no JSON result. Human progress goes to stderr and
+error and exit 32. Malformed or unreadable JSON input also returns sanitized
+`invalidInput` with exit 32; decoder descriptions and input bodies are never
+printed. If the scope cannot be decoded and validated, the local error envelope
+has `version`, `requestID` and `body.error`, with no `scope`: it is an unbound
+input failure, not an app `BridgeResponse` or authorization claim. Parser errors
+(such as missing command options) still use the normal argument diagnostic path.
+Human progress goes to stderr and
 contains stage names only, never app message bodies. Waits default to 30 seconds
 and accept 0.1–300 seconds. A deadline fences late responses. App setup/access
 errors pass through unchanged. No response is a timeout, including when launch
@@ -54,6 +59,13 @@ The injected native launch effect checks the installed bundle
 open it. An absent app and a rejected launch are distinct actionable errors.
 App readiness requires a validated progress or terminal response; launch success
 alone never proves readiness.
+
+For an externally managed app/responder, `--no-launch` skips native app lookup
+and launch while retaining all transport, scope validation and deadline behavior.
+It does not assert app readiness; silence still returns timeout. For development
+or alternate BuildrAI installations, `--app-bundle-identifier IDENTIFIER` selects
+the native lookup target instead of `app.nsbuilder.BuildrAI`. `--no-launch` takes
+precedence when both are supplied. These options do not grant project access.
 
 ## App-side local transport adapter
 
@@ -137,7 +149,7 @@ the outer envelope ID identifies this finalization attempt. The app must validat
 against its own captured evidence and current access, head and disclosure state.
 The CLI does not generate text or supply replacement metrics. Unknown JSON
 fields, including metrics added to generated input, are rejected before app
-launch; malformed input may have no JSON result.
+launch and return the same sanitized `invalidInput` result.
 
 A successful terminal response contains `body.finalized._0.markdown` and
 `snapshot`. Decoding that Markdown string preserves the exact app artifact,

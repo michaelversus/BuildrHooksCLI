@@ -18,6 +18,20 @@ struct ReportOptions: ParsableArguments {
     var scope: String
     @Option(name: .long, help: "Bounded wait in seconds (0.1–300).")
     var timeout: Double = 30
+    @Flag(name: .long, help: "Use an externally managed responder without opening the app; waits remain bounded.")
+    var noLaunch = false
+    @Option(name: .long, help: "BuildrAI bundle identifier for a development or alternate app installation.")
+    var appBundleIdentifier: String?
+
+    func configure(_ execution: ReportCommandExecution) -> ReportCommandExecution {
+        var execution = execution
+        if noLaunch {
+            execution.launch = { .running }
+        } else if let appBundleIdentifier {
+            execution.launch = { ReportCommandExecution.appState(bundleIdentifier: appBundleIdentifier) }
+        }
+        return execution
+    }
 
     func validate() throws {
         guard timeout.isFinite, (0.1 ... 300).contains(timeout) else {
@@ -34,7 +48,7 @@ struct ReportDiscoverCommand: ParsableCommand {
     enum CodingKeys: String, CodingKey { case options, target }
     var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
     func run() throws {
-        let execution = makeExecution()
+        let execution = options.configure(makeExecution())
         do {
             try execution.run(scopePath: options.scope, timeout: options.timeout) {
                 try .discover(JSONDecoder().decode(BridgePullRequest.self,
@@ -57,7 +71,7 @@ struct ReportResolveCommand: ParsableCommand {
     var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
     func run() throws {
         do {
-            try makeExecution().run(scopePath: options.scope, timeout: options.timeout) {
+            try options.configure(makeExecution()).run(scopePath: options.scope, timeout: options.timeout) {
                 .resolve(.init(query: query, source: source.flatMap(BridgeSource.init(rawValue:))))
             }
         } catch is ReportCommandFailure { throw ExitCode(32) }
@@ -82,7 +96,7 @@ struct ReportPrepareCommand: ParsableCommand {
     enum CodingKeys: String, CodingKey { case options, preparation }
     var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
     func run() throws {
-        let execution = makeExecution()
+        let execution = options.configure(makeExecution())
         do {
             try execution.run(scopePath: options.scope, timeout: options.timeout) {
                 try .prepare(JSONDecoder().decode(
@@ -105,7 +119,7 @@ struct ReportFinalizeCommand: ParsableCommand {
     enum CodingKeys: String, CodingKey { case options, generated }
     var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
     func run() throws {
-        let execution = makeExecution()
+        let execution = options.configure(makeExecution())
         do {
             try execution.run(scopePath: options.scope, timeout: options.timeout) {
                 let data = try execution.files.readInput(URL(fileURLWithPath: generated))
@@ -137,7 +151,7 @@ struct ReportCancelCommand: ParsableCommand {
     var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
     func run() throws {
         do {
-            try makeExecution().run(scopePath: options.scope, timeout: options.timeout) {
+            try options.configure(makeExecution()).run(scopePath: options.scope, timeout: options.timeout) {
                 .cancel(.init(targetRequestID: request))
             }
         } catch is ReportCommandFailure { throw ExitCode(32) }

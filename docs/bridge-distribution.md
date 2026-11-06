@@ -110,10 +110,14 @@ registration, both resource bundles, offline commit/rewrite recording, replay,
 failed completion rejection, acknowledgement, retained report workflow
 cancellation and structured errors. Synthetic records are explicitly fixtures,
 not proof of real commit creation. All files are isolated in a temporary project.
-It never starts BuildrAI or installs hooks. Positive discovery/resolve,
-prepare/finalize responder behavior and missing-app/launch failures are tested
-through the agreed injected Swift command seam; they are not positive staged
-binary app-launch acceptance. Real app integration remains a separate gate.
+It never starts BuildrAI or installs hooks. The staged executable also runs
+discovery, resolution, preparation and finalization against a contract-compatible
+local file responder using `--no-launch`. It checks exact Unicode/line-ending/
+whitespace preservation, missing-versus-zero metrics, actual prepare-to-cancel
+handoff, setup/access errors, silence timeout, malformed input and replacement
+metric rejection. A unique absent `--app-bundle-identifier` exercises native
+missing-app lookup deterministically. These checks do not establish successful
+real app launch or source collection. Real app integration remains a separate gate.
 
 ## Pending acceptance and risks
 

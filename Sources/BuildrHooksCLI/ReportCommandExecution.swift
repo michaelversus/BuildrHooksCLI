@@ -10,8 +10,9 @@ struct ReportCommandExecution {
     var now: () -> Double = { Date().timeIntervalSince1970 }
     var requestID: () -> String = { UUID().uuidString }
     var wait: (Double) throws -> Void = { Thread.sleep(forTimeInterval: $0) }
-    var launch: () -> ReportAppState = {
-        let identifier = "app.nsbuilder.BuildrAI"
+    var launch: () -> ReportAppState = { appState(bundleIdentifier: "app.nsbuilder.BuildrAI") }
+
+    static func appState(bundleIdentifier identifier: String) -> ReportAppState {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else {
             return .unavailable
         }
@@ -25,13 +26,23 @@ struct ReportCommandExecution {
     var diagnostic: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
 
     func run(scopePath: String, timeout: Double, body: () throws -> BridgeRequestBody) throws {
-        let scope = try JSONDecoder().decode(BridgeScope.self, from: files.readInput(URL(fileURLWithPath: scopePath)))
-        try BridgeValidator.validate(scope)
+        let identifier = requestID()
+        let scope: BridgeScope
+        do {
+            scope = try JSONDecoder().decode(BridgeScope.self, from: files.readInput(URL(fileURLWithPath: scopePath)))
+            try BridgeValidator.validate(scope)
+        } catch {
+            // There is no trusted scope to echo or bind a transport response to.
+            try emit(ReportInputFailure(requestID: identifier, body: .error(.init(
+                code: .invalidInput, action: "Provide an accessible, valid v1 authorized scope JSON file."
+            ))))
+            throw ReportCommandFailure()
+        }
         let started = now()
-        let request = try BridgeRequest(version: 1, requestID: requestID(), scope: scope,
-                                        createdAt: started, deadline: started + timeout, body: body())
         let response: BridgeResponse
         do {
+            let request = try BridgeRequest(version: 1, requestID: identifier, scope: scope,
+                                            createdAt: started, deadline: started + timeout, body: body())
             // Finalization validation requires the retained packet, loaded under the transport lock.
             if request.body.operation != .finalize {
                 try BridgeValidator.validate(request, expectedScope: scope)
@@ -42,24 +53,28 @@ struct ReportCommandExecution {
                 response = try exchange(request, timeout: timeout)
             }
         } catch let error as ReportExchangeError {
-            response = .init(version: 1, requestID: request.requestID, scope: scope, body: .error(error.failure))
+            response = .init(version: 1, requestID: identifier, scope: scope, body: .error(error.failure))
         } catch let error as BridgeValidationError where error == .incompatibleVersion {
-            response = .init(version: 1, requestID: request.requestID, scope: scope,
+            response = .init(version: 1, requestID: identifier, scope: scope,
                              body: .error(.init(code: .incompatibleVersion,
                                                 action: "Install a compatible protocol v1 app and CLI.")))
         } catch {
-            response = .init(version: 1, requestID: request.requestID, scope: scope,
+            response = .init(version: 1, requestID: identifier, scope: scope,
                              body: .error(.init(code: .invalidInput,
                                                 action: "Check v1 input, response identity and project scope.")))
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(response)
-        guard let json = String(data: data, encoding: .utf8) else { throw ReportCommandFailure() }
-        output(json)
+        try emit(response)
         if case .error = response.body {
             throw ReportCommandFailure()
         }
+    }
+
+    private func emit(_ result: some Encodable) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(result)
+        guard let json = String(data: data, encoding: .utf8) else { throw ReportCommandFailure() }
+        output(json)
     }
 
     private func validateResponse(_ response: BridgeResponse, for request: BridgeRequest) throws {
@@ -149,4 +164,11 @@ struct ReportExchangeError: Error {
     init(_ code: BridgeFailure.Code, _ action: String) {
         failure = .init(code: code, action: action)
     }
+}
+
+/// Local input error only: no fabricated scope or app response when authorization cannot be decoded.
+private struct ReportInputFailure: Encodable {
+    let version = 1
+    let requestID: String
+    let body: BridgeResponseBody
 }

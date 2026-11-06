@@ -48,6 +48,10 @@ struct ReportFinalizeCommandTests {
         fixture.respond = { _ in .finalized(.init(snapshot: input.packet.snapshot, markdown: "must not render")) }
         #expect(throws: ExitCode(32)) { try fixture.runFinalization(input.url) }
         #expect(fixture.launches == 1)
+        guard case let .error(failure) = try fixture.response().body else {
+            Issue.record("Expected structured invalid input"); return
+        }
+        #expect(failure.code == .invalidInput)
         #expect(FileManager.default.fileExists(atPath: fixture.requestDirectory.appending(path: "packet.json").path))
     }
 
