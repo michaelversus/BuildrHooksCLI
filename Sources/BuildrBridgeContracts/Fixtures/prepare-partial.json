@@ -1,0 +1,236 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "prepare-partial",
+  "packet": null,
+  "request": {
+    "body": {
+      "prepare": {
+        "_0": {
+          "disclosure": {
+            "includeOriginalPrompts": false,
+            "policyRevision": "sharing-v1"
+          },
+          "selection": [
+            {
+              "sessionID": "session-1",
+              "source": "codex"
+            }
+          ],
+          "target": {
+            "baseRepository": {
+              "host": "github.com",
+              "name": "project",
+              "owner": "upstream"
+            },
+            "commits": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ],
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "number": 47,
+            "sourceRepository": {
+              "host": "github.com",
+              "name": "project",
+              "owner": "example"
+            }
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "prepared": {
+        "_0": {
+          "coverage": {
+            "notes": [
+              "Skill inference pending; missing input token observations."
+            ],
+            "state": "partial"
+          },
+          "rollupMetrics": {
+            "cacheReadTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "cacheWriteTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "inputTokens": {
+              "unavailable": {
+                "_0": "not reported"
+              }
+            },
+            "outputTokens": {
+              "available": {
+                "_0": 0
+              }
+            },
+            "workingSeconds": {
+              "available": {
+                "_0": 12
+              }
+            }
+          },
+          "sessions": [
+            {
+              "candidate": {
+                "children": [],
+                "coverage": {
+                  "notes": [
+                    "Skill inference pending; missing input token observations."
+                  ],
+                  "state": "partial"
+                },
+                "header": "Investigate report contracts",
+                "parent": null,
+                "provenance": [
+                  {
+                    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "kind": "recordedCommit"
+                  }
+                ],
+                "session": {
+                  "sessionID": "session-1",
+                  "source": "codex"
+                }
+              },
+              "coverage": {
+                "notes": [
+                  "Skill inference pending; missing input token observations."
+                ],
+                "state": "partial"
+              },
+              "metrics": {
+                "cacheReadTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "cacheWriteTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "inputTokens": {
+                  "unavailable": {
+                    "_0": "not reported"
+                  }
+                },
+                "outputTokens": {
+                  "available": {
+                    "_0": 0
+                  }
+                },
+                "workingSeconds": {
+                  "available": {
+                    "_0": 12
+                  }
+                }
+              },
+              "modelSettings": [
+                {
+                  "model": "model-a",
+                  "occurredAt": 130,
+                  "reasoningEffort": null
+                }
+              ],
+              "records": [
+                {
+                  "evidenceID": "evidence-1",
+                  "kind": "validation",
+                  "occurredAt": 140,
+                  "outcome": "success",
+                  "text": "Contract tests passed"
+                }
+              ],
+              "skills": [
+                {
+                  "name": "ticket-tdd",
+                  "provenance": "explicit"
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "capturedAt": 150,
+            "disclosure": {
+              "includeOriginalPrompts": false,
+              "policyRevision": "sharing-v1"
+            },
+            "evidenceRevision": "revision-1",
+            "requestID": "request-1",
+            "scope": {
+              "projectID": "project-1",
+              "repository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "example"
+              },
+              "rootPath": "/workspace/project"
+            },
+            "selection": [
+              {
+                "sessionID": "session-1",
+                "source": "codex"
+              }
+            ],
+            "snapshotID": "snapshot-1",
+            "target": {
+              "baseRepository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "upstream"
+              },
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "number": 47,
+              "sourceRepository": {
+                "host": "github.com",
+                "name": "project",
+                "owner": "example"
+              }
+            }
+          }
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

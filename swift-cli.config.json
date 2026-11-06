@@ -17,7 +17,8 @@
     "BuildrHooksCLI": {
       "executable": "buildrhooks",
       "resources": [
-        "BuildrHooksCLI_BuildrHooksCLI.bundle"
+        "BuildrHooksCLI_BuildrHooksCLI.bundle",
+        "BuildrHooksCLI_BuildrBridgeContracts.bundle"
       ],
       "smoke": [
         {

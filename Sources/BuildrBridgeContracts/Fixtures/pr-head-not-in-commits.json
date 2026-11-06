@@ -1,0 +1,98 @@
+{
+  "expectedError": "invalidIdentity",
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "pr-head-not-in-commits",
+  "packet": null,
+  "request": {
+    "body": {
+      "discover": {
+        "_0": {
+          "baseRepository": {
+            "host": "github.com",
+            "name": "project",
+            "owner": "upstream"
+          },
+          "commits": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "number": 47,
+          "sourceRepository": {
+            "host": "github.com",
+            "name": "project",
+            "owner": "example"
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "discovered": {
+        "_0": {
+          "candidates": [
+            {
+              "children": [],
+              "coverage": {
+                "notes": [
+                  "Skill inference pending; missing input token observations."
+                ],
+                "state": "partial"
+              },
+              "header": "Investigate report contracts",
+              "parent": null,
+              "provenance": [
+                {
+                  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "kind": "recordedCommit"
+                }
+              ],
+              "session": {
+                "sessionID": "session-1",
+                "source": "codex"
+              }
+            }
+          ],
+          "coverage": {
+            "notes": [
+              "Skill inference pending; missing input token observations."
+            ],
+            "state": "partial"
+          }
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

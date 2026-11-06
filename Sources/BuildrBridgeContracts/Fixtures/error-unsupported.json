@@ -1,0 +1,58 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "error-unsupported",
+  "packet": null,
+  "request": {
+    "body": {
+      "resolve": {
+        "_0": {
+          "query": "session-1",
+          "source": "codex"
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "error": {
+        "_0": {
+          "action": "Verify app setup, scope and request, then retry.",
+          "code": "unsupported"
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

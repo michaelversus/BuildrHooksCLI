@@ -1,0 +1,62 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "acknowledgement-success",
+  "packet": null,
+  "request": {
+    "body": {
+      "acknowledge": {
+        "_0": {
+          "recordIDs": [
+            "record-1",
+            "rewrite-1"
+          ]
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "acknowledged": {
+        "_0": {
+          "recordIDs": [
+            "record-1",
+            "rewrite-1"
+          ]
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

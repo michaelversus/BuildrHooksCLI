@@ -1,0 +1,74 @@
+{
+  "expectedError": null,
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "rewrite-squash",
+  "packet": null,
+  "request": {
+    "body": {
+      "recordRewrite": {
+        "_0": {
+          "kind": "rebase",
+          "mappings": [
+            {
+              "original": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "replacement": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "original": "cccccccccccccccccccccccccccccccccccccccc",
+              "replacement": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "recordID": "rewrite-1",
+          "repository": {
+            "host": "github.com",
+            "name": "project",
+            "owner": "example"
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "recorded": {
+        "_0": {
+          "recordIDs": [
+            "rewrite-1"
+          ]
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}

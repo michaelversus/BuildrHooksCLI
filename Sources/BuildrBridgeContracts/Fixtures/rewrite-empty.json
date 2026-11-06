@@ -1,0 +1,65 @@
+{
+  "expectedError": "invalidPayload",
+  "expectedScope": {
+    "projectID": "project-1",
+    "repository": {
+      "host": "github.com",
+      "name": "project",
+      "owner": "example"
+    },
+    "rootPath": "/workspace/project"
+  },
+  "name": "rewrite-empty",
+  "packet": null,
+  "request": {
+    "body": {
+      "recordRewrite": {
+        "_0": {
+          "kind": "rebase",
+          "mappings": [],
+          "recordID": "rewrite-1",
+          "repository": {
+            "host": "github.com",
+            "name": "project",
+            "owner": "example"
+          }
+        }
+      }
+    },
+    "createdAt": 100,
+    "deadline": 200,
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  },
+  "response": {
+    "body": {
+      "recorded": {
+        "_0": {
+          "recordIDs": [
+            "rewrite-1"
+          ]
+        }
+      }
+    },
+    "requestID": "request-1",
+    "scope": {
+      "projectID": "project-1",
+      "repository": {
+        "host": "github.com",
+        "name": "project",
+        "owner": "example"
+      },
+      "rootPath": "/workspace/project"
+    },
+    "version": 1
+  }
+}
