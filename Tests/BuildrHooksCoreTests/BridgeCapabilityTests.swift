@@ -30,7 +30,7 @@ struct BridgeCapabilityTests {
         #expect(result.status == .incompatible)
         #expect(!result.action.isEmpty)
         var unsupported = try CapabilitiesCommand.parse([
-            "--json", "--protocol-version", "1", "--operation", "recordCommit"
+            "--json", "--protocol-version", "1", "--operation", "recordRewrite"
         ])
         unsupported.output = { output.append($0) }
         #expect(throws: ExitCode(31)) { try unsupported.run() }
@@ -47,7 +47,7 @@ struct BridgeCapabilityTests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let bridge = try #require(json["reportingTracking"] as? [String: Any])
         #expect(bridge["protocolVersions"] as? [Int] == [1])
-        let operations = ["discover", "resolve", "prepare", "finalize", "cancel"]
+        let operations = ["discover", "resolve", "prepare", "finalize", "cancel", "recordCommit", "acknowledge"]
         #expect(bridge["implementedOperations"] as? [String] == operations)
     }
 }
