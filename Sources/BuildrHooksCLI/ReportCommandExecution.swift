@@ -36,9 +36,17 @@ struct ReportCommandExecution {
             if request.body.operation != .finalize {
                 try BridgeValidator.validate(request, expectedScope: scope)
             }
-            response = try exchange(request, timeout: timeout)
+            if request.body.operation == .cancel {
+                response = try files.cancel(request)
+            } else {
+                response = try exchange(request, timeout: timeout)
+            }
         } catch let error as ReportExchangeError {
             response = .init(version: 1, requestID: request.requestID, scope: scope, body: .error(error.failure))
+        } catch let error as BridgeValidationError where error == .incompatibleVersion {
+            response = .init(version: 1, requestID: request.requestID, scope: scope,
+                             body: .error(.init(code: .incompatibleVersion,
+                                                action: "Install a compatible protocol v1 app and CLI.")))
         } catch {
             response = .init(version: 1, requestID: request.requestID, scope: scope,
                              body: .error(.init(code: .invalidInput,
@@ -71,25 +79,42 @@ struct ReportCommandExecution {
     private func updateWorkflow(_ response: BridgeResponse, handoff: any ReportHandoff) throws {
         switch response.body {
         case let .prepared(packet): try handoff.retain(packet)
-        case .finalized: handoff.finishWorkflow()
-        case let .error(failure) where [.cancelled, .timeout].contains(failure.code): handoff.finishWorkflow()
+        case .discovered, .resolved, .finalized: try handoff.complete()
+        case let .error(failure) where [.cancelled, .timeout].contains(failure.code):
+            try handoff.terminate(failure.code)
         default: break
+        }
+    }
+
+    private func checkCancellation(_ handoff: any ReportHandoff) throws {
+        do {
+            try handoff.checkCancellation()
+        } catch let error as ReportExchangeError where error.failure.code == .cancelled {
+            try handoff.terminate(.cancelled)
+            throw error
+        }
+    }
+
+    private func openApp() throws {
+        switch launch() {
+        case .unavailable: throw ReportExchangeError(.appUnavailable, "Install BuildrAI, then retry this report.")
+        case .failed: throw ReportExchangeError(.launchFailed, "Open BuildrAI manually and retry this report.")
+        case .running, .launched: break
         }
     }
 
     private func exchange(_ request: BridgeRequest, timeout: Double) throws -> BridgeResponse {
         let handoff = try files.begin(request)
         defer { handoff.close() }
-        switch launch() {
-        case .unavailable: throw ReportExchangeError(.appUnavailable, "Install BuildrAI, then retry this report.")
-        case .failed: throw ReportExchangeError(.launchFailed, "Open BuildrAI manually and retry this report.")
-        case .running, .launched: break
-        }
+        try checkCancellation(handoff)
+        try openApp()
         var previous: BridgeProgress?
         for _ in 0 ..< Int(ceil(timeout / 0.05)) {
+            try checkCancellation(handoff)
             guard now() < request.deadline else { break }
             if let response = try handoff.readResponse() {
                 try validateResponse(response, for: request)
+                try checkCancellation(handoff)
                 guard now() < request.deadline else { break }
                 if case let .progress(progress) = response.body {
                     if progress != previous {
@@ -97,13 +122,21 @@ struct ReportCommandExecution {
                     }
                     previous = progress
                 } else {
-                    try updateWorkflow(response, handoff: handoff)
+                    do {
+                        try updateWorkflow(response, handoff: handoff)
+                    } catch let error as ReportExchangeError where error.failure.code == .cancelled {
+                        try handoff.terminate(.cancelled)
+                        throw error
+                    }
+                    if case .prepared = response.body {
+                        try checkCancellation(handoff)
+                    }
                     return response
                 }
             }
             try wait(min(0.05, max(0, request.deadline - now())))
         }
-        handoff.finishWorkflow()
+        try handoff.terminate(.timeout)
         throw ReportExchangeError(.timeout, "BuildrAI did not complete before the deadline. "
             + "Verify app setup and project access, then retry.")
     }

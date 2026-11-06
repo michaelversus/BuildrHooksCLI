@@ -6,7 +6,9 @@ struct ReportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "report", abstract: "Request session evidence and exact rendered reports from BuildrAI.",
         subcommands: [
-            ReportDiscoverCommand.self, ReportResolveCommand.self, ReportPrepareCommand.self, ReportFinalizeCommand.self
+            ReportDiscoverCommand.self, ReportResolveCommand.self,
+            ReportPrepareCommand.self, ReportFinalizeCommand.self,
+            ReportCancelCommand.self
         ]
     )
 }
@@ -119,6 +121,24 @@ struct ReportFinalizeCommand: ParsableCommand {
                     throw ReportCommandFailure()
                 }
                 return .finalize(content)
+            }
+        } catch is ReportCommandFailure { throw ExitCode(32) }
+    }
+}
+
+/// Cancels only the named repository workflow; closing an app view is unrelated.
+struct ReportCancelCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "cancel")
+    @OptionGroup var options: ReportOptions
+    @Option(name: .long, help: "Exact active request ID or retained preparation workflow ID.")
+    var request: String
+
+    enum CodingKeys: String, CodingKey { case options, request }
+    var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
+    func run() throws {
+        do {
+            try makeExecution().run(scopePath: options.scope, timeout: options.timeout) {
+                .cancel(.init(targetRequestID: request))
             }
         } catch is ReportCommandFailure { throw ExitCode(32) }
     }

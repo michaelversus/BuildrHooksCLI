@@ -47,7 +47,8 @@ struct BridgeCapabilityTests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let bridge = try #require(json["reportingTracking"] as? [String: Any])
         #expect(bridge["protocolVersions"] as? [Int] == [1])
-        #expect(bridge["implementedOperations"] as? [String] == ["discover", "resolve", "prepare", "finalize"])
+        let operations = ["discover", "resolve", "prepare", "finalize", "cancel"]
+        #expect(bridge["implementedOperations"] as? [String] == operations)
     }
 }
 

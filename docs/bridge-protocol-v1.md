@@ -149,13 +149,13 @@ selection and final-output budgets. Do not log packets or prompts.
 Normal `buildrhooks capabilities --json` preserves existing capabilities and adds
 `reportingTracking` with protocolVersions [1], contractRevision 1.0.0,
 definedOperations and implementedOperations. The executable advertises
-**discover and resolve** as implemented operations. The independently consumed
+**discover, resolve, prepare, finalize and cancel** as implemented operations. The independently consumed
 contracts library describes schemas without asserting executable availability.
 See [report commands and local exchange](report-discovery.md). Other operations
 remain unsupported until implemented.
 
 ```sh
-buildrhooks capabilities --json --protocol-version 1 --operation prepare
+buildrhooks capabilities --json --protocol-version 1 --operation recordCommit
 # {"action":"Install a CLI/app pair implementing this operation. Schema support alone is insufficient.","status":"unsupported"}
 # exit 31
 
@@ -178,3 +178,9 @@ snapshot/generated references. Unit tests and staged executable/resource checks
 do not establish real app/source/agent/GitHub behavior, semantic summary quality,
 installation, background services, accessibility or release acceptance.
 Real app integration is not required for #47 and remains pending.
+
+
+The local reporting adapter also shares `BridgeWorkflowTermination` v1 for
+content-free terminal receipts. Its validator binds the receipt to the original
+request ID, scope and creation/deadline pair. See the
+[workflow lifecycle and app adapter requirements](report-discovery.md#cancellation-deadlines-and-recovery).
