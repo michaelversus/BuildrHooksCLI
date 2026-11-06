@@ -22,7 +22,7 @@ struct ReportCommandTests {
 
     @Test func executableCapabilitiesAdvertisePreparation() {
         #expect(BuildrHooksCapabilities.current.reportingTracking.implementedOperations == [
-            .discover, .resolve, .prepare, .finalize
+            .discover, .resolve, .prepare, .finalize, .cancel
         ])
     }
 
@@ -129,7 +129,7 @@ struct ReportCommandTests {
         guard case let .error(failure) = try fixture.response().body else {
             Issue.record("Expected rejected response"); return
         }
-        #expect(failure.code == .invalidInput)
+        #expect(failure.code == (kind == "version" ? .incompatibleVersion : .invalidInput))
     }
 
     @Test func invalidForkScopeNeverLaunchesOrPublishes() throws {

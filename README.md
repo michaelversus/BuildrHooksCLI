@@ -198,7 +198,8 @@ Use `buildrhooks report discover --scope authorized-scope.json --target current-
 for PR candidates and `buildrhooks report resolve --scope authorized-scope.json --query SESSION`
 for references, raw IDs or broader authorized search. These commands contact or
 open BuildrAI and return v1 JSON; progress goes to stderr.
-See [reporting discovery and resolution](docs/report-discovery.md) for authorization,
+Cancel an identified workflow with `buildrhooks report cancel --scope authorized-scope.json --request REQUEST_ID`.
+See [reporting workflow lifecycle](docs/report-discovery.md) for authorization,
 input shapes, the app-side transport adapter and pending real-pair acceptance.
 
 ## 📦 Supported Payloads

@@ -1,8 +1,9 @@
-# Reporting discovery, preparation and finalization
+# Reporting workflow lifecycle
 
 These commands are part of the normal `buildrhooks` executable:
 
 ```sh
+buildrhooks report cancel --scope authorized-scope.json --request PREPARATION_OR_ACTIVE_REQUEST_ID
 buildrhooks report finalize --scope authorized-scope.json --generated generated-content.json --timeout 100
 buildrhooks report prepare --scope authorized-scope.json --preparation confirmed-selection.json --timeout 100
 buildrhooks report discover --scope authorized-scope.json --target current-pr.json --timeout 30
@@ -60,7 +61,9 @@ The transport is separate from Prompt Gate. Under the authorized root:
 
 ```text
 .buildrai/reporting/v1/
-  inflight.lock                    # persistent flock inode, not a request
+  inflight.lock                    # persistent collection flock inode
+  lifecycle.lock                   # brief completion/cancellation mutation lock
+  ended/<requestID>.json           # content-free BridgeWorkflowTermination v1
   requests/<requestID>/
     request.json                   # atomically published BridgeRequest v1
     response.json                  # app atomically replaces BridgeResponse v1
@@ -82,8 +85,8 @@ unsafe existing handoffs. The lock inode remains after release to prevent two
 owners from locking different inodes. A failed ownership attempt never removes
 another request's files. Terminal success/failure/timeout removes only the
 current request directory, except successful preparation as described below.
-Recovery of abandoned requests and explicit cancellation commands belong to
-later lifecycle work. Finalization cleanup is described below.
+The lifecycle recovery and cancellation rules below also apply. Neither lock
+inode may be unlinked by the app or cleanup tooling.
 
 ## Preparing confirmed sessions
 
@@ -152,13 +155,64 @@ or this attempt's bounded timeout removes only the identified prepared workflow
 and its finalization handoff. Mismatched/intermediate preparation responses never
 complete finalization or delete its packet. Other workflows and durable tracking
 records remain untouched. A workflow cannot be finalized again after terminal
-cleanup. Explicit cancellation and abandoned-workflow recovery remain separate
-lifecycle work.
+cleanup. Explicit cancellation and abandoned-workflow recovery follow the rules below.
 
-Capabilities advertise `discover`, `resolve`, `prepare` and `finalize` as
+Capabilities advertise `discover`, `resolve`, `prepare`, `finalize` and `cancel` as
 implemented CLI operations. The independent contracts library describes schemas
 without claiming executable capabilities. Capability readiness does not prove a
 compatible app adapter is installed.
+
+## Cancellation, deadlines and recovery
+
+`report cancel --request ID` names exactly one active request or retained
+preparation in the supplied repository/project scope. It publishes a terminal
+receipt without taking the collection lock, so a waiting collector can observe
+it. It never launches the app. Success is a local cancellation acknowledgement:
+a `cancelled` v1 response bound to the cancellation command's own fresh request
+ID and target ID. It does not assert that an unavailable app has acknowledged it.
+Unknown, foreign, unsafe or already ended identities are rejected.
+
+An active finalization also checks its preparation's cancellation receipt.
+Cancellation is checked before and after response reads and before completion;
+a late packet/report cannot replace the cancelled result. Completion and explicit
+cancellation serialize on the brief lifecycle lock. A command that loses that
+lock can return busy and be retried. Closing the app's progress view does not
+publish a receipt and is not CLI cancellation.
+
+The app adapter must consume `ended/ID.json` as the shared
+`BridgeWorkflowTermination` type. The receipt contains `version: 1`,
+`requestID`, full `scope`, original `createdAt`/`deadline`, and `code`
+(`completed`, `cancelled` or `timeout`). Validate it against the exact
+original request using `BridgeValidator.validate(_:for:)` before changing
+collection/preview state. Enforce the request deadline independently, including
+while the CLI is absent. Scan receipts on startup and check them before emitting
+a result or installing a preview. Keep the app's current preview/workflow identity
+guard: a receipt for an older workflow cannot cancel or replace a newer preview.
+These rules are required app integration, not behavior established by CLI fixtures.
+
+Receipts contain no query, prompt, evidence or Markdown. They remain after packet
+cleanup to prevent request-ID reuse and fence late responders; IDs must always
+be fresh. The adapter must not recreate a deleted request directory. The CLI
+keeps compact receipts and lock inodes; it removes temporary request/response/
+packet directories after terminal completion, cancellation or timeout.
+
+Before each new collection, recovery runs under the repository collection lock.
+Only owned, non-symlink request directories with matching v1 scope/identity and
+valid times are eligible. Active collectors retain that lock and cannot be
+swept by competitors. Matching terminal receipts cause immediate cleanup,
+including recovery from a crash after receipt publication but before deletion.
+Unfinished requests expire at their collection deadline. A validated interrupted
+finalization also ends its identified preparation; a malformed finalization
+cannot cause another preparation to be deleted.
+
+Prepared evidence has a **24-hour workflow lease from request creation**, separate
+from its short collection deadline. The caller can generate content and retry
+recoverable failures during that lease; preparation remains immutable. After the
+lease expires, the next collection removes the abandoned packet and records
+timeout. Recovery is demand-driven, not a background janitor. Unknown, malformed,
+foreign-scope or unidentifiable crash fragments are preserved for operator repair.
+Tracking queues and durable associations are outside this cleanup namespace and
+are never removed by report recovery.
 
 Contract-compatible responder tests establish command behavior, isolation and
 validation. Real app/CLI pairing, source access, native app launch and agent/GitHub

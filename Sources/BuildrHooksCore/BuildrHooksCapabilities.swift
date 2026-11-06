@@ -23,7 +23,7 @@ public struct BuildrHooksCapabilities: Codable, Equatable, Sendable {
             protocolVersions: BridgeCapabilities.current.protocolVersions,
             contractRevision: BridgeCapabilities.current.contractRevision,
             definedOperations: BridgeCapabilities.current.definedOperations,
-            implementedOperations: [.discover, .resolve, .prepare, .finalize]
+            implementedOperations: [.discover, .resolve, .prepare, .finalize, .cancel]
         ),
         version: 1,
         agents: [.codex, .claude],
