@@ -5,7 +5,7 @@ import Foundation
 struct ReportCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "report", abstract: "Request scoped session candidates from BuildrAI.",
-        subcommands: [ReportDiscoverCommand.self, ReportResolveCommand.self]
+        subcommands: [ReportDiscoverCommand.self, ReportResolveCommand.self, ReportPrepareCommand.self]
     )
 }
 
@@ -63,5 +63,28 @@ struct ReportResolveCommand: ParsableCommand {
         if let source, !["codex", "claude"].contains(source) {
             throw ValidationError("Use --source codex or claude.")
         }
+    }
+}
+
+/// Confirmed selection and disclosure are caller input; BuildrAI owns evidence preparation.
+struct ReportPrepareCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "prepare", abstract: "Prepare a fixed evidence snapshot for confirmed sessions."
+    )
+    @OptionGroup var options: ReportOptions
+    @Option(name: .long, help: "JSON v1 BridgePreparation with confirmed source-aware selection and disclosure.")
+    var preparation: String
+
+    enum CodingKeys: String, CodingKey { case options, preparation }
+    var makeExecution: () -> ReportCommandExecution = { ReportCommandExecution() }
+    func run() throws {
+        let execution = makeExecution()
+        do {
+            try execution.run(scopePath: options.scope, timeout: options.timeout) {
+                try .prepare(JSONDecoder().decode(
+                    BridgePreparation.self, from: execution.files.readInput(URL(fileURLWithPath: preparation))
+                ))
+            }
+        } catch is ReportCommandFailure { throw ExitCode(32) }
     }
 }

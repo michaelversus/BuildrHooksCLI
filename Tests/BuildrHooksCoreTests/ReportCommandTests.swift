@@ -6,6 +6,13 @@ import Foundation
 import Testing
 
 struct ReportCommandTests {
+    @Test func preparationIsRegisteredInNormalExecutable() throws {
+        let command = try BuildrHooksCLICommand.parseAsRoot([
+            "report", "prepare", "--scope", "/scope.json", "--preparation", "/selection.json"
+        ])
+        #expect(type(of: command).configuration.commandName == "prepare")
+    }
+
     @Test func reportingCommandsAreRegisteredInNormalExecutable() throws {
         let command = try BuildrHooksCLICommand.parseAsRoot([
             "report", "discover", "--scope", "/scope.json", "--target", "/pr.json"
@@ -13,8 +20,10 @@ struct ReportCommandTests {
         #expect(type(of: command).configuration.commandName == "discover")
     }
 
-    @Test func executableCapabilitiesAdvertiseDiscoveryAndResolutionOnly() {
-        #expect(BuildrHooksCapabilities.current.reportingTracking.implementedOperations == [.discover, .resolve])
+    @Test func executableCapabilitiesAdvertisePreparation() {
+        #expect(BuildrHooksCapabilities.current.reportingTracking.implementedOperations == [
+            .discover, .resolve, .prepare
+        ])
     }
 
     @Test(arguments: [ReportAppState.running, .launched])
@@ -254,7 +263,7 @@ final class ReportFixture {
     var diagnostics: [String] = []
     var launches = 0
     var respond: ((BridgeRequest) throws -> BridgeResponseBody)?
-    var transform: ((BridgeResponse) -> BridgeResponse)?
+    var transform: ((BridgeResponse) throws -> BridgeResponse)?
     var launchState = ReportAppState.launched
     var requestDirectory: URL {
         root.appending(path: ".buildrai/reporting/v1/requests/request-1")

@@ -9,6 +9,7 @@ struct ReportFileSystem {
 
 protocol ReportHandoff {
     func readResponse() throws -> BridgeResponse?
+    func retain(_ packet: BridgeEvidencePacket) throws
     func close()
 }
 
@@ -17,6 +18,7 @@ final class ReportFileExchange: ReportHandoff {
     private let descriptor: Int32
     private var closed = false
     private var ownsDirectory = false
+    private var retained = false
 
     init(request: BridgeRequest) throws {
         let manager = FileManager.default
@@ -116,10 +118,21 @@ final class ReportFileExchange: ReportHandoff {
         return try JSONDecoder().decode(BridgeResponse.self, from: Self.read(url))
     }
 
+    /// A successful preparation ends collection, but its identified workflow continues.
+    /// Persist the validated value separately from the app's replaceable response slot.
+    func retain(_ packet: BridgeEvidencePacket) throws {
+        let data = try JSONEncoder().encode(packet)
+        guard data.count <= 4 * 1024 * 1024 else {
+            throw ReportExchangeError(.invalidInput, "Reduce evidence below the 4 MiB transport budget.")
+        }
+        try data.write(to: directory.appending(path: "packet.json"), options: .atomic)
+        retained = true
+    }
+
     func close() {
         guard !closed else { return }
         closed = true
-        if ownsDirectory {
+        if ownsDirectory, !retained {
             try? FileManager.default.removeItem(at: directory)
         }
         // Keep the inode so another flock owner cannot bypass it.
