@@ -10,6 +10,7 @@ struct ReportFileSystem {
 protocol ReportHandoff {
     func readResponse() throws -> BridgeResponse?
     func retain(_ packet: BridgeEvidencePacket) throws
+    func finishWorkflow()
     func close()
 }
 
@@ -19,6 +20,7 @@ final class ReportFileExchange: ReportHandoff {
     private var closed = false
     private var ownsDirectory = false
     private var retained = false
+    private var workflowDirectory: URL?
 
     init(request: BridgeRequest) throws {
         let manager = FileManager.default
@@ -32,6 +34,7 @@ final class ReportFileExchange: ReportHandoff {
         }
         directory = parent.appending(path: request.requestID)
         do {
+            workflowDirectory = try Self.preparedWorkflow(for: request, parent: parent)
             guard !manager.fileExists(atPath: directory.path) else {
                 throw ReportExchangeError(.busy, "This request ID already exists. Retry with a fresh ID.")
             }
@@ -54,6 +57,45 @@ final class ReportFileExchange: ReportHandoff {
             try? manager.removeItem(at: directory)
             Darwin.close(descriptor)
             throw error
+        }
+    }
+
+    /// A fresh transport request refers to an existing immutable preparation.
+    /// Never trust a caller-supplied packet or the app's replaceable response slot.
+    private static func preparedWorkflow(for request: BridgeRequest, parent: URL) throws -> URL? {
+        guard case let .finalize(content) = request.body else { return nil }
+        let identifier = content.snapshot.requestID
+        guard identifier != request.requestID, !identifier.isEmpty,
+              identifier.rangeOfCharacter(from: CharacterSet(
+                  charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+              ).inverted) == nil else {
+            throw ReportExchangeError(.invalidInput,
+                                      "Use the prepared workflow ID and a fresh finalization request ID.")
+        }
+        let directory = parent.appending(path: identifier)
+        let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)
+        guard attributes[.type] as? FileAttributeType == .typeDirectory,
+              attributes[.ownerAccountID] as? UInt32 == getuid() else {
+            throw ReportExchangeError(.invalidInput, "Use an owned prepared workflow without symlinks.")
+        }
+        let packet = try JSONDecoder().decode(
+            BridgeEvidencePacket.self, from: read(directory.appending(path: "packet.json"))
+        )
+        let preparation = try JSONDecoder().decode(
+            BridgeRequest.self, from: read(directory.appending(path: "request.json"))
+        )
+        try BridgeValidator.validate(preparation, expectedScope: request.scope)
+        try BridgeValidator.validate(
+            BridgeResponse(version: 1, requestID: preparation.requestID, scope: preparation.scope,
+                           body: .prepared(packet)), for: preparation
+        )
+        try BridgeValidator.validate(request, expectedScope: request.scope, preparedPacket: packet)
+        return directory
+    }
+
+    func finishWorkflow() {
+        if let workflowDirectory {
+            try? FileManager.default.removeItem(at: workflowDirectory)
         }
     }
 
