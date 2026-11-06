@@ -99,7 +99,8 @@ creation. Rewrites retain explicit original/replacement pairs, including
 many-to-one mappings. Validation rejects empty/duplicate-original/self mappings,
 not repeated replacements. Acknowledgements name exact stable records; queue
 owners retain records until durable ingestion is acknowledged. The schema does
-not implement recording, rewrite-chain lookup, queues or ingestion.
+not implement rewrite-chain lookup or app ingestion. See [offline commit recording](commit-tracking.md)
+for implemented recording, replay and acknowledgement mechanics.
 
 ## Evidence and generated content
 
@@ -184,3 +185,7 @@ The local reporting adapter also shares `BridgeWorkflowTermination` v1 for
 content-free terminal receipts. Its validator binds the receipt to the original
 request ID, scope and creation/deadline pair. See the
 [workflow lifecycle and app adapter requirements](report-discovery.md#cancellation-deadlines-and-recovery).
+
+Offline commit recording adds shared v1 `TrackingConfiguration`, `TrackingCommitExecution`,
+`TrackingRecord` and `TrackingResult` wire types, with completion validation shared by both
+consumers. See [tracking exchange and app obligations](commit-tracking.md).
