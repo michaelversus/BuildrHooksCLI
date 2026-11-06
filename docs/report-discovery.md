@@ -1,8 +1,9 @@
-# Reporting discovery and resolution
+# Reporting discovery, resolution and preparation
 
 These commands are part of the normal `buildrhooks` executable:
 
 ```sh
+buildrhooks report prepare --scope authorized-scope.json --preparation confirmed-selection.json --timeout 100
 buildrhooks report discover --scope authorized-scope.json --target current-pr.json --timeout 30
 buildrhooks report resolve --scope authorized-scope.json --query 'older feature work'
 buildrhooks report resolve --scope authorized-scope.json --query 'raw-session-id' --source codex
@@ -79,10 +80,46 @@ symlinks, and are limited to 4 MiB. Directory ownership and symlink checks rejec
 unsafe existing handoffs. The lock inode remains after release to prevent two
 owners from locking different inodes. A failed ownership attempt never removes
 another request's files. Terminal success/failure/timeout removes only the
-current request directory. Recovery of abandoned requests and multi-step
-prepare/finalize/cancellation workflows belong to later lifecycle work.
+current request directory, except successful preparation as described below.
+Recovery of abandoned requests and finalization/cancellation commands belong to
+later lifecycle work.
 
-Capabilities advertise only `discover` and `resolve` as implemented CLI
+## Preparing confirmed sessions
+
+`report prepare --preparation` accepts one `BridgePreparation` JSON file. It
+contains `target` (the same complete PR object used for discovery), `selection`
+(an ordered array of `{"source":"codex","sessionID":"session-1"}` identities),
+and `disclosure` (for example
+`{"policyRevision":"sharing-v1","includeOriginalPrompts":false}`).
+The author confirms these values before invocation. The CLI forwards them
+unchanged; it neither searches for substitute sessions nor expands scope.
+
+A successful result is the app's validated `prepared` response. Snapshot
+identity, evidence revision, selection order, disclosure, metrics, model and
+reasoning settings, skill provenance, ordered evidence IDs, and coverage remain
+the app's values. Missing metrics remain unavailable and zero remains zero.
+Running sessions, omitted/truncated evidence and unavailable selected sessions
+are represented by the app's coverage notes. At least one usable evidence record
+is required; an all-unavailable packet fails with `unusableEvidence`.
+The typed contract excludes raw transcript/source/tool-output fields; the app
+owns sanitization of evidence text and disclosure enforcement.
+
+Preparation ends collection while keeping its workflow alive. The CLI retains
+`requests/<requestID>/request.json`, the response slot, and a separate
+`packet.json` containing the validated `BridgeEvidencePacket`. The
+`snapshot.requestID` is the workflow identifier for subsequent generated-content
+submission. The packet is captured before returning success; later replacement
+of `response.json` does not change it. The request ID cannot be reused or
+overwrite an existing workflow. The collection lock is released, allowing a new
+request with a fresh ID. Errors and timeouts remove only their own request
+directory; they never remove another prepared workflow.
+
+Generated content must use that exact snapshot and evidence IDs. Finalization,
+terminal workflow cleanup and abandoned-workflow recovery are follow-on lifecycle
+commands; callers should retain the returned workflow identity until then.
+Preparation does not claim that those commands are available.
+
+Capabilities advertise `discover`, `resolve` and `prepare` as implemented CLI
 operations. The independent contracts library continues to describe schemas
 without claiming executable capabilities. Capability readiness does not prove a
 compatible app adapter is installed.

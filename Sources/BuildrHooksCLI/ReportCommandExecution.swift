@@ -51,6 +51,20 @@ struct ReportCommandExecution {
         }
     }
 
+    private func validateResponse(_ response: BridgeResponse, for request: BridgeRequest) throws {
+        do {
+            try BridgeValidator.validate(response, for: request)
+        } catch BridgeValidationError.invalidPayload {
+            if case let .prepared(packet) = response.body,
+               packet.sessions.allSatisfy(\.records.isEmpty) {
+                throw ReportExchangeError(
+                    .unusableEvidence, "No usable evidence. Review session access or select another session."
+                )
+            }
+            throw BridgeValidationError.invalidPayload
+        }
+    }
+
     private func exchange(_ request: BridgeRequest, timeout: Double) throws -> BridgeResponse {
         let handoff = try files.begin(request)
         defer { handoff.close() }
@@ -63,7 +77,7 @@ struct ReportCommandExecution {
         for _ in 0 ..< Int(ceil(timeout / 0.05)) {
             guard now() < request.deadline else { break }
             if let response = try handoff.readResponse() {
-                try BridgeValidator.validate(response, for: request)
+                try validateResponse(response, for: request)
                 guard now() < request.deadline else { break }
                 if case let .progress(progress) = response.body {
                     if progress != previous {
@@ -71,6 +85,9 @@ struct ReportCommandExecution {
                     }
                     previous = progress
                 } else {
+                    if case let .prepared(packet) = response.body {
+                        try handoff.retain(packet)
+                    }
                     return response
                 }
             }

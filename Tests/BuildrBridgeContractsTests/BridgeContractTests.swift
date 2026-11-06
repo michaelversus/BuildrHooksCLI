@@ -38,6 +38,8 @@ struct BridgeContractTests {
         "partial-without-disclosure",
         "pr-head-not-in-commits",
         "prepare-partial",
+        "prepare-multi-session",
+        "prepare-all-unavailable",
         "progress-collecting",
         "receipt-mismatch",
         "reference-stale",
@@ -92,7 +94,7 @@ struct BridgeContractTests {
     @Test
     func sharedCompatibilityCorpusPreservesPartialCoverageAndRejectsStaleReferences() throws {
         let results = try BridgeCompatibilityFixtures.verify()
-        #expect(results.count == 53)
+        #expect(results.count == 55)
         for result in results {
             let expected = String(describing: result.expectedError)
             let actual = String(describing: result.actualError)
