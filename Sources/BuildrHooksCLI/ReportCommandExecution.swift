@@ -1,0 +1,91 @@
+import AppKit
+import BuildrBridgeContracts
+import Foundation
+
+enum ReportAppState { case running, launched, unavailable, failed }
+
+/// Command boundary effects never inspect source catalogs, credentials or app caches.
+struct ReportCommandExecution {
+    var files = ReportFileSystem()
+    var now: () -> Double = { Date().timeIntervalSince1970 }
+    var requestID: () -> String = { UUID().uuidString }
+    var wait: (Double) throws -> Void = { Thread.sleep(forTimeInterval: $0) }
+    var launch: () -> ReportAppState = {
+        let identifier = "app.nsbuilder.BuildrAI"
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else {
+            return .unavailable
+        }
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: identifier).isEmpty {
+            return .running
+        }
+        return NSWorkspace.shared.open(url) ? .launched : .failed
+    }
+
+    var output: (String) -> Void = { print($0) }
+    var diagnostic: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
+
+    func run(scopePath: String, timeout: Double, body: () throws -> BridgeRequestBody) throws {
+        let scope = try JSONDecoder().decode(BridgeScope.self, from: files.readInput(URL(fileURLWithPath: scopePath)))
+        try BridgeValidator.validate(scope)
+        let started = now()
+        let request = try BridgeRequest(version: 1, requestID: requestID(), scope: scope,
+                                        createdAt: started, deadline: started + timeout, body: body())
+        let response: BridgeResponse
+        do {
+            try BridgeValidator.validate(request, expectedScope: scope)
+            response = try exchange(request, timeout: timeout)
+        } catch let error as ReportExchangeError {
+            response = .init(version: 1, requestID: request.requestID, scope: scope, body: .error(error.failure))
+        } catch {
+            response = .init(version: 1, requestID: request.requestID, scope: scope,
+                             body: .error(.init(code: .invalidInput,
+                                                action: "Check v1 input, response identity and project scope.")))
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(response)
+        guard let json = String(data: data, encoding: .utf8) else { throw ReportCommandFailure() }
+        output(json)
+        if case .error = response.body {
+            throw ReportCommandFailure()
+        }
+    }
+
+    private func exchange(_ request: BridgeRequest, timeout: Double) throws -> BridgeResponse {
+        let handoff = try files.begin(request)
+        defer { handoff.close() }
+        switch launch() {
+        case .unavailable: throw ReportExchangeError(.appUnavailable, "Install BuildrAI, then retry this report.")
+        case .failed: throw ReportExchangeError(.launchFailed, "Open BuildrAI manually and retry this report.")
+        case .running, .launched: break
+        }
+        var previous: BridgeProgress?
+        for _ in 0 ..< Int(ceil(timeout / 0.05)) {
+            guard now() < request.deadline else { break }
+            if let response = try handoff.readResponse() {
+                try BridgeValidator.validate(response, for: request)
+                guard now() < request.deadline else { break }
+                if case let .progress(progress) = response.body {
+                    if progress != previous {
+                        diagnostic("BuildrAI: " + progress.stage.rawValue)
+                    }
+                    previous = progress
+                } else {
+                    return response
+                }
+            }
+            try wait(min(0.05, max(0, request.deadline - now())))
+        }
+        throw ReportExchangeError(.timeout, "BuildrAI did not complete before the deadline. "
+            + "Verify app setup and project access, then retry.")
+    }
+}
+
+struct ReportCommandFailure: Error {}
+
+struct ReportExchangeError: Error {
+    let failure: BridgeFailure
+    init(_ code: BridgeFailure.Code, _ action: String) {
+        failure = .init(code: code, action: action)
+    }
+}

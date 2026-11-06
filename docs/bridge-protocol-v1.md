@@ -148,12 +148,14 @@ selection and final-output budgets. Do not log packets or prompts.
 
 Normal `buildrhooks capabilities --json` preserves existing capabilities and adds
 `reportingTracking` with protocolVersions [1], contractRevision 1.0.0,
-definedOperations and implementedOperations. This slice deliberately advertises
-**no implemented reporting/tracking operations**. It does not register operational
-report/tracking commands before their implementation.
+definedOperations and implementedOperations. The executable advertises
+**discover and resolve** as implemented operations. The independently consumed
+contracts library describes schemas without asserting executable availability.
+See [report commands and local exchange](report-discovery.md). Other operations
+remain unsupported until implemented.
 
 ```sh
-buildrhooks capabilities --json --protocol-version 1 --operation discover
+buildrhooks capabilities --json --protocol-version 1 --operation prepare
 # {"action":"Install a CLI/app pair implementing this operation. Schema support alone is insufficient.","status":"unsupported"}
 # exit 31
 

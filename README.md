@@ -192,6 +192,15 @@ of supported agents, lifecycle events, and Claude Desktop transcript-surface
 support. BuildrAI should block Claude setup when this document does not declare
 the required capability.
 
+### Session reporting
+
+Use `buildrhooks report discover --scope authorized-scope.json --target current-pr.json`
+for PR candidates and `buildrhooks report resolve --scope authorized-scope.json --query SESSION`
+for references, raw IDs or broader authorized search. These commands contact or
+open BuildrAI and return v1 JSON; progress goes to stderr.
+See [reporting discovery and resolution](docs/report-discovery.md) for authorization,
+input shapes, the app-side transport adapter and pending real-pair acceptance.
+
 ## 📦 Supported Payloads
 
 ### `session-start`
