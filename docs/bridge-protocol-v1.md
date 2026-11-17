@@ -1,8 +1,7 @@
 # Reporting/tracking protocol v1
 
-Contract revision **1.0.0** is the initial compatible source contract for CLI issue
-#47 and BuildrAI specification #1023. This is a source revision, not a published
-CLI/app release or an assertion that app integration has passed. Pin the delivery
+Protocol v1 originated with CLI issue #47 and BuildrAI specification #1023.
+Contract revision **1.1.0** adds explicit original prompt selection. Pin the delivery
 commit containing this document when developing against it; record the published
 CLI/library version and tested app revision before shipping integration.
 
@@ -72,7 +71,7 @@ Header text is display information, never identity.
 | --- | --- | --- |
 | discover(PR) | discovered(candidates, coverage) | Scoped candidate discovery |
 | resolve(query, optional source) | resolved(query, choices) | Explicit session resolution; multiple choices remain ambiguous |
-| prepare(target, selection, disclosure) | prepared(packet) | Capture immutable sanitized evidence |
+| prepare(target, selection, disclosure, optional originalPrompts) | prepared(packet) | Capture immutable sanitized evidence |
 | finalize(generated content) | finalized(snapshot, markdown) | App-rendered final content |
 | cancel(targetRequestID) | cancelled(targetRequestID) | Cancel only the identified workflow |
 | recordCommit(receipt) | recorded(record IDs) | Successful creation association; never a mere SHA observation |
@@ -145,10 +144,16 @@ source-body property or credentials model is provided. Individual text values
 are bounded to 64 KiB; producers/transport must additionally enforce packet,
 selection and final-output budgets. Do not log packets or prompts.
 
+A preparation may carry `originalPrompts`, an array of entries with a
+source-aware `session` and nonempty `evidenceIDs` from that session's compact
+prepared packet. Each session must appear in the confirmed selection and may
+have at most one entry. Set `includeOriginalPrompts` to true only with a
+nonempty explicit selection. Compact preparations may omit this field.
+
 ## Capabilities and command validation
 
 Normal `buildrhooks capabilities --json` preserves existing capabilities and adds
-`reportingTracking` with protocolVersions [1], contractRevision 1.0.0,
+`reportingTracking` with protocolVersions [1], contractRevision 1.1.0,
 definedOperations and implementedOperations. The executable advertises
 **discover, resolve, prepare, finalize, cancel, recordCommit, recordRewrite and
 acknowledge** as implemented operations. The independently consumed contracts

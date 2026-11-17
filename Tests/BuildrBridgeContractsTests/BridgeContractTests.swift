@@ -3,6 +3,30 @@ import Foundation
 import Testing
 
 struct BridgeContractTests {
+    @Test func preparationPreservesPromptSelectionAcrossTheWire() throws {
+        let fixture = BridgeCompatibilityFixtures.directory.appendingPathComponent("prepare-partial.json")
+        let data = try Data(contentsOf: fixture)
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var request = try #require(root["request"] as? [String: Any])
+        var body = try #require(request["body"] as? [String: Any])
+        var operation = try #require(body["prepare"] as? [String: Any])
+        var prepare = try #require(operation["_0"] as? [String: Any])
+        let sessions = try #require(prepare["selection"] as? [[String: Any]])
+        let session = try #require(sessions.first)
+        var disclosure = try #require(prepare["disclosure"] as? [String: Any])
+        disclosure["includeOriginalPrompts"] = true
+        prepare["disclosure"] = disclosure
+        prepare["originalPrompts"] = [["session": session, "evidenceIDs": ["s0:request-2"]]]
+        operation["_0"] = prepare
+        body["prepare"] = operation
+        request["body"] = body
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let decoded = try JSONDecoder().decode(BridgeRequest.self, from: requestData)
+        try BridgeValidator.validate(decoded, expectedScope: decoded.scope)
+        let encoded = try JSONEncoder().encode(decoded)
+        #expect(String(bytes: encoded, encoding: .utf8)?.contains("s0:request-2") == true)
+    }
+
     @Test(arguments: [
         "acknowledgement-success",
         "cancel-success",

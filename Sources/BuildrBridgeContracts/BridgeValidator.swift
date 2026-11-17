@@ -86,6 +86,9 @@ public enum BridgeValidator {
             try validate(preparation.target)
             try validateSelection(preparation.selection)
             try requireID(preparation.disclosure.policyRevision)
+            if let prompts = preparation.originalPrompts {
+                try validateOriginalPrompts(prompts, preparation: preparation)
+            }
         case let .finalize(content):
             try validateSnapshotScope(content.snapshot, scope: request.scope)
         case let .cancel(cancellation):
@@ -96,6 +99,22 @@ public enum BridgeValidator {
         }
         if let target = request.target, target.sourceRepository != request.scope.repository {
             throw BridgeValidationError.scopeMismatch
+        }
+    }
+
+    private static func validateOriginalPrompts(_ prompts: [BridgeOriginalPromptSelection],
+                                                preparation: BridgePreparation) throws {
+        let sessions = Set(prompts.map(\.session))
+        guard preparation.disclosure.includeOriginalPrompts == !prompts.isEmpty,
+              sessions.count == prompts.count, sessions.isSubset(of: Set(preparation.selection)) else {
+            throw BridgeValidationError.invalidPayload
+        }
+        for prompt in prompts {
+            guard !prompt.evidenceIDs.isEmpty, prompt.evidenceIDs.count <= 64,
+                  Set(prompt.evidenceIDs).count == prompt.evidenceIDs.count else {
+                throw BridgeValidationError.invalidPayload
+            }
+            try prompt.evidenceIDs.forEach(requireID)
         }
     }
 
