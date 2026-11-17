@@ -136,19 +136,22 @@ public struct BridgeEvidenceRecord: Codable, Equatable, Sendable {
     public let text: String
     public let outcome: BridgeOutcome
     public let occurredAt: Double
+    public let isOriginalPrompt: Bool?
 
     public init(
         evidenceID: String,
         kind: BridgeActivityKind,
         text: String,
         outcome: BridgeOutcome,
-        occurredAt: Double
+        occurredAt: Double,
+        isOriginalPrompt: Bool? = nil
     ) {
         self.evidenceID = evidenceID
         self.kind = kind
         self.text = text
         self.outcome = outcome
         self.occurredAt = occurredAt
+        self.isOriginalPrompt = isOriginalPrompt
     }
 }
 

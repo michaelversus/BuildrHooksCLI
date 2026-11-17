@@ -149,6 +149,8 @@ source-aware `session` and nonempty `evidenceIDs` from that session's compact
 prepared packet. Each session must appear in the confirmed selection and may
 have at most one entry. Set `includeOriginalPrompts` to true only with a
 nonempty explicit selection. Compact preparations may omit this field.
+The prepared packet flags each disclosed original with `isOriginalPrompt: true`
+and must match the requested session and evidence ID set exactly.
 
 ## Capabilities and command validation
 

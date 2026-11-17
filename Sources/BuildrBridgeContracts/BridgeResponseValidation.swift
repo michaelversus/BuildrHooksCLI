@@ -92,6 +92,14 @@ extension BridgeValidator {
               packet.snapshot.disclosure == preparation.disclosure,
               packet.snapshot.capturedAt >= request.createdAt,
               packet.snapshot.capturedAt <= request.deadline else { throw BridgeValidationError.staleSnapshot }
+        if let selections = preparation.originalPrompts {
+            let expected = Dictionary(grouping: selections, by: \.session)
+            for session in packet.sessions {
+                let requested = Set((expected[session.candidate.session] ?? []).flatMap(\.evidenceIDs))
+                let disclosed = Set(session.records.filter { $0.isOriginalPrompt == true }.map(\.evidenceID))
+                guard disclosed == requested else { throw BridgeValidationError.responseMismatch }
+            }
+        }
         try validate(packet)
     }
 }
