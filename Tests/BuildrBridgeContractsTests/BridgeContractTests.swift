@@ -27,6 +27,18 @@ struct BridgeContractTests {
         #expect(String(bytes: encoded, encoding: .utf8)?.contains("s0:request-2") == true)
     }
 
+    @Test func compactPreparationRejectsAnUnrequestedOriginalPrompt() throws {
+        let fixture = BridgeCompatibilityFixtures.directory.appendingPathComponent("prepare-partial.json")
+        let json = try String(contentsOf: fixture, encoding: .utf8)
+        let changed = json.replacingOccurrences(of: #""kind": "validation""#,
+                                                with: #""kind": "request", "isOriginalPrompt": true"#)
+        let decoded = try JSONDecoder().decode(BridgeFixture.self, from: Data(changed.utf8))
+        let response = try #require(decoded.response)
+        #expect(throws: BridgeValidationError.responseMismatch) {
+            try BridgeValidator.validate(response, for: decoded.request)
+        }
+    }
+
     @Test(arguments: [
         "acknowledgement-success",
         "cancel-success",
