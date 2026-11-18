@@ -86,9 +86,7 @@ public enum BridgeValidator {
             try validate(preparation.target)
             try validateSelection(preparation.selection)
             try requireID(preparation.disclosure.policyRevision)
-            if let prompts = preparation.originalPrompts {
-                try validateOriginalPrompts(prompts, preparation: preparation)
-            }
+            try validateOriginalPrompts(preparation.originalPrompts ?? [], preparation: preparation)
         case let .finalize(content):
             try validateSnapshotScope(content.snapshot, scope: request.scope)
         case let .cancel(cancellation):

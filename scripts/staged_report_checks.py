@@ -92,6 +92,9 @@ def verify_report(run, root, scope, scope_path, fixtures, write):
 
     selected = deepcopy(preparation)
     selected["disclosure"]["includeOriginalPrompts"] = True
+    unscoped = run("report-unscoped-original-prompts", ["report", "prepare", *options,
+                   "--preparation", write("unscoped.json", selected)], 32)
+    assert unscoped["body"]["error"]["_0"]["code"] == "invalidInput", unscoped["body"]
     selected["originalPrompts"] = [{"session": selected["selection"][0], "evidenceIDs": ["evidence-1"]}]
 
     def prepare_selected(request):
