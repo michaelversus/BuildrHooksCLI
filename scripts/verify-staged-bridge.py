@@ -26,7 +26,9 @@ def verify(binary, source):
     capabilities = run("capabilities", ["capabilities", "--json"])
     assert capabilities["version"] == 1  # Capability schema version; CLI version comes from --version.
     bridge = capabilities["reportingTracking"]
-    assert bridge["protocolVersions"] == [1] and bridge["contractRevision"] == "1.0.0"
+    assert bridge["protocolVersions"] == [1]
+    revision = bridge["contractRevision"]
+    assert revision == "1.1.0", f"Expected bridge contract 1.1.0, got {revision!r}"
     operations = ["discover", "resolve", "prepare", "finalize", "cancel",
                   "recordCommit", "recordRewrite", "acknowledge"]
     assert bridge["implementedOperations"] == operations
@@ -91,7 +93,7 @@ def verify(binary, source):
         assert run("acknowledge", ["tracking", "acknowledge", *tracking, "--acknowledgement", ack])["status"] == "acknowledged"
         replay = run("acknowledged-replay", ["tracking", "replay", *tracking])
         assert not replay["records"] and not replay["rewrites"]
-    return {"binary": str(binary), "version": version, "contractRevision": "1.0.0",
+    return {"binary": str(binary), "version": version, "contractRevision": revision,
             "checks": checks, "passed": len(checks),
             "limitations": ["No real app/agent/GitHub, install/update or release acceptance.",
                              "Report responder fixtures and explicit launch controls do not establish real app launch or source collection."]}

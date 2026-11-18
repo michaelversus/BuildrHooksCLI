@@ -1,14 +1,28 @@
 import Foundation
 
+public struct BridgeOriginalPromptSelection: Codable, Equatable, Sendable {
+    public let session: BridgeSession
+    public let evidenceIDs: [String]
+
+    public init(session: BridgeSession, evidenceIDs: [String]) {
+        self.session = session
+        self.evidenceIDs = evidenceIDs
+    }
+}
+
 public struct BridgePreparation: Codable, Equatable, Sendable {
     public let target: BridgePullRequest
     public let selection: [BridgeSession]
     public let disclosure: BridgeDisclosure
 
-    public init(target: BridgePullRequest, selection: [BridgeSession], disclosure: BridgeDisclosure) {
+    public let originalPrompts: [BridgeOriginalPromptSelection]?
+
+    public init(target: BridgePullRequest, selection: [BridgeSession], disclosure: BridgeDisclosure,
+                originalPrompts: [BridgeOriginalPromptSelection]? = nil) {
         self.target = target
         self.selection = selection
         self.disclosure = disclosure
+        self.originalPrompts = originalPrompts
     }
 }
 

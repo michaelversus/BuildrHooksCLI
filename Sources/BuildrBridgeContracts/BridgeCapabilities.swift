@@ -19,9 +19,19 @@ public struct BridgeCapabilities: Codable, Equatable, Sendable {
     }
 
     public static let current = BridgeCapabilities(
-        protocolVersions: [1], contractRevision: "1.0.0",
+        protocolVersions: [1], contractRevision: "1.1.0",
         definedOperations: BridgeOperation.allCases, implementedOperations: []
     )
+
+    public static func supports(receipt data: Data, version: Int, operations: [BridgeOperation]) -> Bool {
+        struct Receipt: Decodable { let reportingTracking: BridgeCapabilities }
+        guard let capabilities = try? JSONDecoder().decode(Receipt.self, from: data).reportingTracking else {
+            return false
+        }
+        return operations.allSatisfy {
+            capabilities.negotiate(version: version, operation: $0.rawValue).status == .ready
+        }
+    }
 
     public func negotiate(version: Int, operation: String) -> BridgeReadiness {
         guard protocolVersions.contains(version) else {
