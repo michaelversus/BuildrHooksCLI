@@ -30,7 +30,11 @@ def verify_report(run, root, scope, scope_path, fixtures, write):
             deadline = time.monotonic() + 8
             while not pending.done() and time.monotonic() < deadline:
                 for path in requests.glob("*/request.json"):
-                    request = json.loads(path.read_text())
+                    try:
+                        request = json.loads(path.read_text())
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        # The CLI may still be writing the request or may have removed it on timeout.
+                        continue
                     identifier = request["requestID"]
                     if identifier in handled:
                         continue
@@ -58,8 +62,8 @@ def verify_report(run, root, scope, scope_path, fixtures, write):
 
     preparation_path = write("preparation.json", preparation)
 
-    def prepare(request):
-        assert request["body"]["prepare"]["_0"] == preparation
+    def prepare(request, expected_preparation=preparation):
+        assert request["body"]["prepare"]["_0"] == expected_preparation
         packet = deepcopy(shared("prepare-partial")["response"]["body"]["prepared"]["_0"])
         packet["snapshot"].update(scope=scope, requestID=request["requestID"],
                                   capturedAt=request["createdAt"])
@@ -86,8 +90,24 @@ def verify_report(run, root, scope, scope_path, fixtures, write):
     assert report["snapshot"] == snapshot
     assert not (requests / snapshot["requestID"]).exists()
 
-    # Cancellation uses a genuinely prepared workflow, rather than seeded internal files.
-    prepared = exchange("report-prepare-to-cancel", "prepare", ["--preparation", preparation_path], prepare)
+    selected = deepcopy(preparation)
+    selected["disclosure"]["includeOriginalPrompts"] = True
+    selected["originalPrompts"] = [{"session": selected["selection"][0], "evidenceIDs": ["evidence-1"]}]
+
+    def prepare_selected(request):
+        reply = prepare(request, selected)
+        packet = reply["prepared"]["_0"]
+        packet["snapshot"]["disclosure"] = selected["disclosure"]
+        packet["sessions"][0]["records"][0].update(
+            kind="request", outcome="unknown", text="Selected fixture prompt", isOriginalPrompt=True
+        )
+        return reply
+
+    prepared = exchange("report-prepare-selected-prompt", "prepare",
+                        ["--preparation", write("selected.json", selected)], prepare_selected)
+    record = prepared["body"]["prepared"]["_0"]["sessions"][0]["records"][0]
+    assert record["evidenceID"] == "evidence-1" and record["isOriginalPrompt"] is True
+    assert record["text"] == "Selected fixture prompt"
     identifier = prepared["requestID"]
     cancelled = run("report-cancel", ["report", "cancel", "--scope", scope_path, "--request", identifier])
     assert cancelled["body"]["cancelled"]["_0"]["targetRequestID"] == identifier
